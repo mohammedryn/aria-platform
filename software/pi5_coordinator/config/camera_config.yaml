@@ -1,0 +1,36 @@
+# Camera Configuration for A.R.I.A.
+
+# Default camera sources by platform
+camera:
+  # Auto-detection defaults
+  laptop_default: "webcam"
+  pi_default: "picamera2"
+  
+  # Resolution settings
+  resolution:
+    width: 1920
+    height: 1080
+  
+  # Webcam settings (laptop)
+  webcam:
+    device_id: 0  # /dev/video0
+    fps: 30
+  
+  # Pi Camera settings
+  picamera2:
+    sensor_mode: 0  # Auto mode
+    format: "RGB888"
+    
+  # Image capture settings
+  capture:
+    auto_white_balance: true
+    auto_exposure: true
+    brightness: 0  # -100 to 100
+    contrast: 0    # -100 to 100
+
+# Save directory for test captures
+captures:
+  directory: "captures/"
+  prefix: "aria_"
+  format: "jpg"
+  quality: 95

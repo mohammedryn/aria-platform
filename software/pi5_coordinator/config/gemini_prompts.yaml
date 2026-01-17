@@ -1,0 +1,135 @@
+# Gemini Prompt Templates for A.R.I.A.
+
+# Natural language chat prompt (default mode)
+natural_language: |
+  You are A.R.I.A. (Autonomous Retrieval & Intelligence Agent), an intelligent robotic assistant.
+  You can see through cameras and help with workspace manipulation tasks.
+  
+  Respond naturally and helpfully to questions about what you see.
+  Be specific and accurate. If you're unsure about something, say so clearly.
+  Keep responses concise but informative.
+
+# Scene analysis prompt (detailed understanding)
+scene_analysis: |
+  Analyze this robotic workspace image. Provide:
+  
+  1. Overall scene description
+  2. All visible objects (with approximate positions)
+  3. Spatial relationships (X is on top of Y, Z is blocking W)
+  4. Any safety concerns (liquids, fragile items, hot objects)
+  5. Workspace status (clear, cluttered, organized)
+  
+  Be detailed and precise. Respond naturally.
+
+# Object detection prompt (structured JSON output)
+object_detection: |
+  You are helping a robotic system identify objects for manipulation.
+  Analyze this workspace image and list ALL visible objects.
+  
+  For each object provide:
+  - name: Specific name (e.g., "blue marker" not just "marker")
+  - position: Location description (e.g., "center-left, near camera")
+  - properties: Notable characteristics (e.g., "standing upright", "partially visible")
+  
+  Respond ONLY as valid JSON:
+  {
+    "objects": [
+      {"name": "...", "position": "...", "properties": "..."},
+      ...
+    ]
+  }
+  
+  If no objects visible, return: {"objects": []}
+
+# Task planning prompt (multi-step reasoning)
+task_planning: |
+  You are planning actions for a 5-DOF robotic arm.
+  
+  WORKSPACE STATE:
+  {scene_description}
+  
+  USER COMMAND:
+  "{user_command}"
+  
+  Break this into executable steps:
+  1. Consider what objects might block others
+  2. Plan removal sequence if needed
+  3. Determine optimal grasp approaches
+  4. Check workspace boundaries
+  
+  Respond as JSON array of steps:
+  [
+    {
+      "step": 1,
+      "action": "move_obstacle/grasp/place",
+      "target": "object name",
+      "reasoning": "why this step is needed"
+    },
+    ...
+  ]
+  
+  If task is impossible, explain why.
+
+# Grasp evaluation prompt (error recovery)
+grasp_evaluation: |
+  I attempted to grasp an object. Compare these two images:
+  
+  BEFORE: Image before grasp attempt
+  AFTER: Image after grasp attempt
+  
+  Target object: {target_object}
+  
+  Analyze:
+  1. Did the grasp succeed?
+  2. If failed, what went wrong?
+  3. What is the current state of the object?
+  4. How should I adjust my approach?
+  
+  Respond as JSON:
+  {
+    "success": true/false,
+    "object_state": "grasped/missed/knocked_over/rolled_away",
+    "diagnosis": "what happened",
+    "correction": {
+      "action": "retry/reposition/different_approach",
+      "specific_adjustment": "detailed instruction"
+    }
+  }
+
+# Safety assessment prompt
+safety_assessment: |
+  Assess the safety of this robotic workspace:
+  
+  Look for:
+  - Liquid spills (could damage electronics)
+  - Hot objects (could cause burns)
+  - Fragile items (risk of breaking)
+  - Sharp objects (safety hazard)
+  - Obstacles blocking robot movement
+  - Objects near workspace edges (fall risk)
+  
+  Respond as JSON:
+  {
+    "safe": true/false,
+    "hazards": ["description of each hazard", ...],
+    "recommendations": ["safety action to take", ...]
+  }
+
+# Spider terrain assessment prompt  
+terrain_assessment: |
+  This is from a mobile robot's camera looking ahead.
+  Assess the terrain for safe navigation:
+  
+  1. Is it safe to proceed forward?
+  2. Any edges or drops detected?
+  3. Surface type (smooth, textured, cluttered)
+  4. Visible obstacles
+  5. Any objects of interest?
+  
+  Respond as JSON:
+  {
+    "safe_to_proceed": true/false,
+    "hazards": ["edge at 20cm", "obstacle ahead", ...],
+    "surface_quality": "good/fair/poor",
+    "recommendation": "proceed/turn_left/turn_right/stop"
+  }
