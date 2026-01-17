@@ -1,0 +1,29 @@
+# Core Dependencies
+google-generativeai==0.3.1
+opencv-python==4.8.1.78
+numpy==1.24.3
+pyserial==3.5
+paho-mqtt==1.6.1
+pyyaml==6.0.1
+
+# ROS2 (install via apt, but listed for reference)
+# sudo apt install ros-humble-desktop python3-colcon-common-extensions
+
+# Computer Vision
+pillow==10.0.0
+scipy==1.11.2
+
+# Utilities
+python-dotenv==1.0.0
+requests==2.31.0
+
+# Development & Testing
+pytest==7.4.2
+pytest-cov==4.1.0
+pytest-asyncio==0.21.1
+black==23.9.1
+flake8==6.1.0
+mypy==1.5.1
+
+# Optional: Performance
+# numba==0.58.0  # JIT compilation for speed

@@ -1,0 +1,93 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+.vscode/
+.clang_complete
+.gcc-flags.json
+
+# ROS2
+install/
+log/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Credentials & Secrets
+*.key
+*.pem
+.env
+config/secrets.yaml
+.gemini_api_key
+
+# Hardware Calibration Data (depends - might want to track)
+calibration_data/
+*.npz
+
+# Logs
+*.log
+logs/
+
+# Test Results
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Compiled binaries
+*.hex
+*.bin
+*.elf
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Camera captures (test images)
+captures/
+test_images/
+
+# Documentation builds
+docs/_build/
+docs/.doctrees/
+
+# OS
+Thumbs.db
