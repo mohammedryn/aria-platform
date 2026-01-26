@@ -40,9 +40,17 @@ class GeminiCoordinator:
         # Configure Gemini
         genai.configure(api_key=self.api_key)
         
-        # Initialize models
-        self.model_flash = genai.GenerativeModel('gemini-1.5-flash')  # Fast responses
-        self.model_pro = genai.GenerativeModel('gemini-1.5-pro')      # Deep reasoning
+        # Initialize models (use currently available models)
+        # Note: Model names may change - check https://ai.google.dev/models/gemini
+        try:
+            # Use stable aliases which auto-resolve to best available model
+            self.model_flash = genai.GenerativeModel('gemini-flash-latest')
+            self.model_pro = genai.GenerativeModel('gemini-pro-latest')
+        except Exception as e:
+            logger.warning(f"Failed to initialize models: {e}")
+            # Fallback to hardcoded 1.5 if alias fails
+            self.model_flash = genai.GenerativeModel('gemini-1.5-flash')
+            self.model_pro = genai.GenerativeModel('gemini-1.5-pro')
         
         # Load prompts from config
         self.prompts = self._load_prompts(config_path)

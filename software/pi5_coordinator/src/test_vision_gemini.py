@@ -34,6 +34,8 @@ def main():
     parser.add_argument('--camera', type=str, default='auto', 
                        choices=['auto', 'webcam', 'picamera2'],
                        help='Camera source (default: auto-detect)')
+    parser.add_argument('--test-image', type=str,
+                       help='Use a static image file instead of camera (for WSL/testing)')
     parser.add_argument('--no-display', action='store_true',
                        help='Disable image display (for headless Pi)')
     parser.add_argument('--save-images', action='store_true',
@@ -52,10 +54,30 @@ def main():
         return 1
     
     try:
-        # Initialize camera
-        print(f"📸 Initializing camera ({args.camera})...")
-        camera = CameraInterface(source=args.camera)
-        print(f"✓ Camera ready: {camera.source}\n")
+        # Initialize camera or load test image
+        if args.test_image:
+            print(f"📸 Loading test image: {args.test_image}...")
+            import cv2
+            current_image = cv2.imread(args.test_image)
+            if current_image is None:
+                print(f"✗ Failed to load image: {args.test_image}")
+                return 1
+            print(f"✓ Test image loaded ({current_image.shape})\n")
+            camera = None
+        else:
+            print(f"📸 Initializing camera ({args.camera})...")
+            camera = CameraInterface(source=args.camera)
+            print(f"✓ Camera ready: {camera.source}\n")
+            
+            # Capture initial image
+            print("📸 Capturing initial image...")
+            current_image = camera.capture()
+            
+            if current_image is None:
+                print("✗ Failed to capture image. Check camera connection.")
+                return 1
+            
+            print("✓ Image captured!\n")
         
         # Initialize Gemini
         print("🤖 Connecting to Gemini API...")
@@ -85,14 +107,7 @@ def main():
         print()
         
         # Capture initial image
-        print("📸 Capturing initial image...")
-        current_image = camera.capture()
-        
-        if current_image is None:
-            print("✗ Failed to capture image. Check camera connection.")
-            return 1
-        
-        print("✓ Image captured!\n")
+
         
         if args.save_images:
             filename = f"captures/capture_{int(time.time())}.jpg"
@@ -135,6 +150,9 @@ Examples:
                     continue
                 
                 elif user_input.lower() == 'capture':
+                    if camera is None:
+                        print("⚠️  Running in test-image mode - using same static image")
+                        continue
                     print("📸 Capturing new image...")
                     current_image = camera.capture()
                     if current_image is not None:
@@ -203,7 +221,7 @@ Examples:
     
     finally:
         # Cleanup
-        if 'camera' in locals():
+        if 'camera' in locals() and camera is not None:
             camera.release()
             print("\n📸 Camera released")
     

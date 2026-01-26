@@ -1,6 +1,6 @@
 # Untitled
 
-# Project A.R.I.A. - Swarm Edition
+# Project A.R.I.A.: The 'Cursor' for the Physical World
 
 ## Autonomous Retrieval & Intelligence Agent with Multi-Agent Collaboration
 
@@ -32,7 +32,7 @@
 
 ## 1. Executive Summary
 
-**Project A.R.I.A.** (Autonomous Retrieval & Intelligence Agent) represents a paradigm shift in robotic manipulation and autonomous systems. By leveraging Google's Gemini multimodal AI as a central reasoning engine, we have created an ecosystem where heterogeneous robotic agents collaborate intelligently to solve real-world manipulation and retrieval tasks.
+**Project A.R.I.A.** (Autonomous Retrieval & Intelligence Agent) is the **"Cursor" for the Physical World**. Just as AI cursors in IDEs debug code, A.R.I.A. debugs, organizes, and manipulates the physical hardware workspace.
 
 ### Key Innovation
 
@@ -45,7 +45,7 @@ Traditional robotic systems rely on pre-programmed behaviors and limited compute
 
 ### System Composition
 
-- **Primary Agent**: 5-DOF robotic arm with visual workspace analysis
+- **Primary Agent**: Hybrid Stepper-Servo Manipulator (Industrial precision base with high-torque lifting).
 - **Scout Agent**: Bionic spider robot with mobile vision and LIDAR mapping
 - **AI Coordinator**: Gemini API providing centralized reasoning
 - **Human Interface**: Voice-controlled ESP32-based interaction system
@@ -262,9 +262,9 @@ Project A.R.I.A. implements a **hierarchical multi-agent robotic system** where:
 │  │   - MG90S (end×2)  │  │  │  └───────────────────────┘ │
 │  └────────────────────┘  │  │                             │
 │                          │  │  ┌───────────────────────┐ │
-│  ┌────────────────────┐  │  │  │   Pi HQ Camera        │ │
-│  │  Workspace Camera  │  │  │  │   (Mobile Vision)     │ │
-│  └────────────────────┘  │  │  └───────────────────────┘ │
+│  │  ESP32-CAM           │ │
+│  │  (MJPEG Stream)      │ │
+│  └───────────────────────┘ │
 │                          │  │                             │
 │                          │  │  ┌───────────────────────┐ │
 │                          │  │  │   SLAMTEC LIDAR       │ │
@@ -417,9 +417,9 @@ MULTI-AGENT HANDOFF:
 
 | Joint | Servo Model | Torque | Purpose |
 | --- | --- | --- | --- |
-| Base (J1) | MG996R | 11 kg·cm | Rotation (0-180°) |
-| Shoulder (J2) | Futaba S3003 | 3.2 kg·cm | Elevation |
-| Elbow (J3) | Futaba S3003 | 3.2 kg·cm | Extension |
+| Base (J1) | NEMA 17 Stepper (0.4Nm) | - | 360° Precision Sweep |
+| Shoulder (J2) | MG996R | 11 kg·cm | High-Torque Lifting |
+| Elbow (J3) | MG996R | 11 kg·cm | Extended Reach |
 | Wrist Pitch (J4) | MG90S | 1.8 kg·cm | Orientation |
 | Wrist Roll (J5) | MG90S | 1.8 kg·cm | Grasp angle |
 - **Workspace**: ~40cm radius
@@ -452,19 +452,12 @@ MULTI-AGENT HANDOFF:
     - SLAM visual features
     - Gemini visual input
 
-### **SLAMTEC C1M1 R2 LIDAR**
+### **Visual Odometry (Pure Vision)**
 
-- **Type**: 2D scanning LIDAR
-- **Range**: 0.15m - 12m
-- **Scan Rate**: 10Hz
-- **Angular Resolution**: 0.9°
-- **Accuracy**: ±2cm
-- **Interface**: USB (virtual serial)
-- **Use Cases**:
-    - Workspace boundary detection
-    - Obstacle mapping
-    - Edge detection (prevent falls)
-    - SLAM odometry assistance
+- **Sensor**: ESP32-CAM (OV2640)
+- **Method**: Optical Flow + Gemini-assisted localization
+- **Philosophy**: Navigation without expensive sensors. We use Gemini to interpret the visual scene for navigation ("Move towards the blue box").
+- **Cost**: <$10 (vs $100+ for LIDAR)
 
 ### **ESP32-S3 Integrated Sensors**
 
@@ -474,13 +467,13 @@ MULTI-AGENT HANDOFF:
 
 ### 6.4 Power System
 
-- **Arm**: External 6V/5A power supply (servos)
-- **Spider**: Integrated LiPo battery (7.4V, capacity TBD)
-- **Pi 5**: USB-C PD, 5V/5A recommended
+- **Source**: Custom 3S2P Li-Ion Array (12,000 mAh) - >12 Hours Runtime "The Purple Beast"
+- **Rail A (12V)**: Direct drive for NEMA 17 Stepper & Table Lamp Relay
+- **Rail B (5V High Current)**: 5V 5A UBEC for MG996R Servos
+- **Rail C (5V Logic)**: LM2596 Buck Converter (5.1V) for Raspberry Pi 5
 - **Teensy**: Powered via USB from Pi
-- **ESP32**: USB-C or battery (usage dependent)
 
-**Total Power Budget**: ~50W peak
+**Total Power Budget**: ~50W peak (Handled by Dual-Rail System)
 
 ### 6.5 Physical Integration
 
@@ -543,8 +536,9 @@ Key Packages:
 IDE: Arduino IDE 2.x / PlatformIO
 Core: Teensyduino 1.58+
 Libraries:
-  - Servo.h (built-in)
-  - PWMServo (for advanced control)
+  - AccelStepper.h (for NEMA 17 smoothness)
+  - Servo.h (for J4/J5)
+  - PWMServo (for J2/J3)
   - Eigen (IK calculations)
 
 ```
@@ -686,8 +680,9 @@ class SwarmCoordinator:
 // Binary packet structure for low latency
 struct ArmCommand {
     uint8_t header = 0xAA;
-    uint8_t command_type;  // MOVE_TO, GET_STATUS, etc.
-    float joint_angles[5];
+    uint8_t command_type;
+    int32_t base_steps;      // Steps for NEMA 17
+    float joint_angles[4];   // Angles for J2-J5
     uint16_t checksum;
 };
 
@@ -830,8 +825,9 @@ public:
     bool solve(float x, float y, float z, float pitch, float* joint_angles) {
         // Geometric approach for 5-DOF
 
-        // 1. Base rotation (theta1)
-        joint_angles[0] = atan2(y, x);
+        // 1. Base rotation (theta1) - Converted to Steps
+        float theta1 = atan2(y, x);
+        joint_angles[0] = theta1; // Converted to steps by Move function (theta * steps_per_rad)
 
         // 2. Reach calculation for planar 2-link system
         float r = sqrt(x*x + y*y);
@@ -2559,6 +2555,18 @@ def execute_task_with_fallback(task):
 
 ## 14. Demo Scenarios
 
+### Scenario 5: The Workspace Reset ("The Bulldozer")
+**Concept**: Demonstrates hybrid motor advantage (smooth continuous sweep).
+
+1.  **Command**: "Aria, clear the workspace."
+2.  **Gemini**: Identifies scattered debris (wire scraps, PCBs) vs useful tools.
+3.  **Action**:
+    -   Arm lowers to surface level.
+    -   **NEMA 17 Base** performs a smooth, vibration-free 180° sweep.
+    -   Debris is pushed to the "Trash Zone".
+    -   Useful tools are picked up and organized.
+4.  **Wow Factor**: Servos would jitter/stutter during a slow sweep. The Stepper makes it look like industrial automation.
+
 ### 14.1 Scenario 1: "Basic Retrieval" (45 seconds)
 
 **Setup**:
@@ -2964,17 +2972,17 @@ This is the future of human-robot collaboration.
 | Raspberry Pi 5 (8GB) | 1 | Central compute | $80 |
 | Teensy 4.1 | 1 | Arm control | $35 |
 | ESP32-S3-BOX-3 | 1 | Voice interface | $50 |
-| 5-DOF Robotic Arm | 1 | Manipulation | $150 (kit) |
-| MG996R Servo | 1 | Base joint | Included |
-| Futaba S3003 Servo | 2 | Mid joints | Included |
-| MG90S Servo | 2 | Wrist joints | Included |
+| NEMA 17 Stepper (0.4Nm) | 1 | Base Sweep (J1) | $12 |
+| A4988 / TMC2209 Driver | 1 | Stepper Driver | $5 |
+| MG996R Servo | 2 | Shoulder/Elbow | $20 |
+| MG90S Servo | 2 | Wrist/Grip | $10 |
 | Acebott Spider | 1 | Mobile scout | $200 |
-| Pi HQ Camera | 1 | Vision | $50 |
-| C/CS Lens (6mm) | 1 | Camera lens | $15 |
-| SLAMTEC C1M1 LIDAR | 1 | Mapping | $100 |
-| Power supplies | 2 | Arm + Pi | $30 |
-| Cables & connectors | - | Integration | $20 |
-| **Total** | - | - | **~$730** |
+| ESP32-CAM | 1 | Vision (Spider) | $8 |
+| 5V 5A UBEC | 1 | Servo Power | $15 |
+| LM2596 Buck Converter | 1 | Logic Power | $5 |
+| 12V Relay Module | 1 | Lamp Control | $5 |
+| 3S LiPo Battery | 1 | Main Power | $30 |
+| **Total** | - | - | **~$475** |
 
 ### Appendix B: Software Dependencies
 
