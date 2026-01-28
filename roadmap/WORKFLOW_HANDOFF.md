@@ -40,23 +40,32 @@ Because WSL2 has limitations with USB Hardware passthrough (specifically for Boo
 
 ---
 
-## 📝 Context Handoff (How to sync the AI Agents)
+## 📝 Context Handoff Log (Chronological)
 
-When switching computers/OS, copy the section below into the Chat to "Update" the AI.
+**RULE**: Do NOT delete old contexts. Add a new "Context Entry" at the bottom before switching machines. This creates a development history trail.
 
-### **Current State (Updated: Jan 28, 2026)**
-> *"I am working on Project A.R.I.A. using the Hybrid Workflow."*
+### Context Entry 1: Initial Migration to Windows (Jan 28, 2026)
+> *Written by WSL Agent*
 
-**Hardware Config**:
-*   **Base**: NEMA 17 Stepper (Step/Dir Driver on Pins TBD).
-*   **Arm**: Servos on Pins 3,4,5,6 (Teensy 4.1).
-*   **Power**: Dual Rail (12V Motor / 5V Logic).
+**Goal**: Flash Hardware & Assemble.
+*   **Hardware Config**:
+    *   Base: NEMA 17 Stepper (Skip calibration logic).
+    *   Arm: Servos on Pins 3-6 (Need 90° cal).
+    *   Power: Dual Rail 12V/5V.
+*   **Repo Status**:
+    *   Everything committed in `firmware/teensy_calibration`.
+    *   Pin 2 commented out in calibration sketch.
+*   **Next Action (Windows)**:
+    1.  Pull Repo.
+    2.  Flash `teensy_calibration`.
+    3.  Assemble Arm.
+    4.  Create new `teensy_arm_controller` project for Hybrid control.
 
-**Latest Accomplishments**:
-1.  Migrated Repo to GitHub.
-2.  Created `teensy_calibration` firmware.
-3.  Commented out Pin 2 (Base) in calibration to protect Stepper Driver.
-4.  **NEXT**: Assemble hardware and write `teensy_arm_controller` (Hybrid Stepper implementation).
+---
+*(Add new Context Entry below this line)*
+### Context Entry 2: return to WSL (Pending)
+> *To be written by Windows Agent after flashing...*
+
 
 ---
 
