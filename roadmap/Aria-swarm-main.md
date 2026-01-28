@@ -543,8 +543,7 @@ IDE: Arduino IDE 2.x / PlatformIO
 Core: Teensyduino 1.58+
 Libraries:
   - AccelStepper.h (for NEMA 17 S-Curve Acceleration)
-  - Servo.h (for J4/J5)
-  - PWMServo (for J2/J3)
+  - Servo.h / PWMServo (High-Res 16-bit PWM)
   - Eigen (Hybrid Kinematics)
 
 ```

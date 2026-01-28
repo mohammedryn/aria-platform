@@ -61,10 +61,39 @@ Because WSL2 has limitations with USB Hardware passthrough (specifically for Boo
     3.  Assemble Arm.
     4.  Create new `teensy_arm_controller` project for Hybrid control.
 
+### Context Entry 1.5: The "God-Tier" Firmware Strategy (Jan 28, 2026)
+> *Written by WSL Agent*
+
+**CRITICAL: Windows Agent Instructions**
+Do NOT skip steps. Follow this exact hardware implementation order:
+
+1.  **Mechanical Assembly First**:
+    - Flash `teensy_calibration` (Pins 3-6 only). 
+    - Power Servos (J2-J5) to snap them to 90°.
+    - Assemble Arm Horns & Links.
+    - Assemble NEMA 17 Base (J1).
+
+2.  **Electronics Hardening**:
+    - **CAPACITORS**: Solder 1000uF caps across power rails (Prevents brownouts).
+    - **PERF BOARD**: No breadboards for 5A servo loads.
+
+3.  **Firmware Phase A: "Industrial" S-Curve**:
+    - Create new project `teensy_arm_controller`.
+    - Implement `AccelStepper` for Base.
+    - Implement 16-bit PWM for Servos.
+    - **Goal**: Smooth movement, no jerks.
+
+4.  **Firmware Phase B: "Cinematic" Motion Engine**:
+    - Implement Time-Sync (All joints arrive together).
+    - Implement "Alive" Idle Noise (Perlin).
+    - **Goal**: Robot feels biological.
+
+**Resources**: See `roadmap/Aria-swarm-main.md` Section 7 (Module 5) for the math.
+
 ---
 *(Add new Context Entry below this line)*
-### Context Entry 2: return to WSL (Pending)
-> *To be written by Windows Agent after flashing...*
+### Context Entry 2: Windows Implementation Status (Pending)
+> *To be written by Windows Agent...*
 
 
 ---
