@@ -32,7 +32,7 @@
 
 ## 1. Executive Summary
 
-**Project A.R.I.A.** (Autonomous Retrieval & Intelligence Agent) is the **"Cursor" for the Physical World**. Just as AI cursors in IDEs debug code, A.R.I.A. debugs, organizes, and manipulates the physical hardware workspace.
+**Project A.R.I.A.** (Autonomous Retrieval & Intelligence Agent) is the **"Cursor" for the Physical World**. Just as AI cursors in IDEs debug code, A.R.I.A. debugs, organizes, and manipulates the physical hardware workspace (sorting wires, retrieving tools, checking breadboards).
 
 ### Key Innovation
 
@@ -45,7 +45,7 @@ Traditional robotic systems rely on pre-programmed behaviors and limited compute
 
 ### System Composition
 
-- **Primary Agent**: Hybrid Stepper-Servo Manipulator (Industrial precision base with high-torque lifting).
+- **Primary Agent**: Hybrid Stepper-Servo Manipulator (Industrial precision base for smooth sweeping + high-torque lifting).
 - **Scout Agent**: Bionic spider robot with mobile vision and LIDAR mapping
 - **AI Coordinator**: Gemini API providing centralized reasoning
 - **Human Interface**: Voice-controlled ESP32-based interaction system
@@ -60,11 +60,11 @@ This project demonstrates how Gemini can transform rigid robotic systems into fl
 
 ### Current Limitations in Robotic Systems
 
-**2.1 Limited Workspace Perception**
+**2.1 The Hardware Debugging Gap**
 
-- Fixed-position manipulators have restricted fields of view
-- Objects outside the camera frame are effectively invisible
-- Traditional solution: move the entire robot base (expensive, complex)
+- Just as software engineers use AI cursors (like Cursor.ai) to debug code, hardware engineers struggle to debug physical workspaces.
+- Organizing wires, retrieving specific tools, and checking breadboard connections is manual and tedious.
+- **The Problem**: There is no "Cursor" for the physical world to fix the mess.
 
 **2.2 Rigid Programming Paradigms**
 
@@ -127,11 +127,17 @@ Project A.R.I.A. implements a **hierarchical multi-agent robotic system** where:
 - Coordinate sharing between agents
 - Physical object manipulation by scout (pushing/herding)
 
-**Tier 4: Adaptive Learning**
+**Tier 4: "ROS-Gen" (Node Spawner)**
 
-- Error detection via vision
-- Strategy adjustment on failure
-- Contextual safety awareness ("don't grab hot objects")
+- Gemini writes and executes ROS 2 nodes on the fly for novel tasks (e.g., 'Spin on Red').
+- Demonstrates true Level 4 Autonomy.
+
+**Tier 5: Visual Circuit Debugging**
+- Overseer camera captures breadboard state.
+- Gemini analyzes wiring against a schematic to highlight potential short circuits or missing connections.
+
+**Tier 6: The "Workspace Reset"**
+- Autonomous cleanup routine where the NEMA 17 base performs a smooth 'Bulldozer' sweep to clear scrap wires to a trash zone.
 
 ### 3.3 Differentiation from Existing Solutions
 
@@ -262,13 +268,13 @@ Project A.R.I.A. implements a **hierarchical multi-agent robotic system** where:
 │  │   - MG90S (end×2)  │  │  │  └───────────────────────┘ │
 │  └────────────────────┘  │  │                             │
 │                          │  │  ┌───────────────────────┐ │
-│  │  ESP32-CAM           │ │
-│  │  (MJPEG Stream)      │ │
-│  └───────────────────────┘ │
+│                          │  │  │  ESP32-CAM           │ │
+│                          │  │  │  (MJPEG Stream)      │ │
+│                          │  │  └───────────────────────┘ │
 │                          │  │                             │
 │                          │  │  ┌───────────────────────┐ │
 │                          │  │  │   SLAMTEC LIDAR       │ │
-│                          │  │  │   (Mapping/Safety)    │ │
+│                          │  │  │   (Base Station Mapping)│ │
 │                          │  │  └───────────────────────┘ │
 └──────────────────────────┘  └─────────────────────────────┘
 
@@ -417,15 +423,15 @@ MULTI-AGENT HANDOFF:
 
 | Joint | Servo Model | Torque | Purpose |
 | --- | --- | --- | --- |
-| Base (J1) | NEMA 17 Stepper (0.4Nm) | - | 360° Precision Sweep |
-| Shoulder (J2) | MG996R | 11 kg·cm | High-Torque Lifting |
-| Elbow (J3) | MG996R | 11 kg·cm | Extended Reach |
+| Base (J1) | NEMA 17 Stepper w/ TMC2209 | 0.4Nm | Vibration-free, cinematic 360° sweeping |
+| Shoulder (J2) | MG996R | 11 kg·cm | Capacity to lift heavy tools (Solder Gun) |
+| Elbow (J3) | MG996R | 11 kg·cm | High-torque extended reach |
 | Wrist Pitch (J4) | MG90S | 1.8 kg·cm | Orientation |
 | Wrist Roll (J5) | MG90S | 1.8 kg·cm | Grasp angle |
 - **Workspace**: ~40cm radius
-- **Payload**: ~200g (with current configuration)
-- **Degrees of Freedom**: 5 (no dedicated gripper in base config)
-- **Control**: Position mode via PWM (500-2500μs)
+- **Payload**: ~400g (Upgraded)
+- **Degrees of Freedom**: 5
+- **Control**: Hybrid (Steps for Base, PWM for J2-J5)
 
 ### **Acebott Bionic Spider**
 
@@ -441,22 +447,21 @@ MULTI-AGENT HANDOFF:
 
 ### 6.3 Sensors
 
-### **Raspberry Pi HQ Camera**
+### **Raspberry Pi HQ Camera (The Overseer)**
 
 - **Sensor**: Sony IMX477, 12.3MP
-- **Resolution**: 4056×3040 (12MP), 1920×1080 @ 60fps (usable)
-- **Lens**: C/CS-mount compatible (using 6mm or 16mm lens)
-- **FOV**: ~60° (with 6mm lens)
-- **Use Cases**:
-    - Workspace object detection (on spider)
-    - SLAM visual features
-    - Gemini visual input
+- **Lens**: 6mm Low Distortion Lens (Arducam LB024)
+- **Note**: Rectilinear lens ensures straight lines for accurate coordinate mapping without software de-warping.
+- **Mounting**: 1m height via HDMI-to-CSI Extension Kit.
+
+### **Spider Scout Vision**
+- **Sensor**: ESP32-CAM (OV2640)
+- **Role**: Cost-optimized scout for hard-to-reach areas.
 
 ### **Visual Odometry (Pure Vision)**
 
-- **Sensor**: ESP32-CAM (OV2640)
 - **Method**: Optical Flow + Gemini-assisted localization
-- **Philosophy**: Navigation without expensive sensors. We use Gemini to interpret the visual scene for navigation ("Move towards the blue box").
+- **Philosophy**: Navigation without expensive sensors.
 - **Cost**: <$10 (vs $100+ for LIDAR)
 
 ### **ESP32-S3 Integrated Sensors**
@@ -465,15 +470,16 @@ MULTI-AGENT HANDOFF:
 - IMU (accelerometer/gyroscope)
 - Ambient light sensor
 
-### 6.4 Power System
+### 6.4 Power System (The "Reactor Core")
 
-- **Source**: Custom 3S2P Li-Ion Array (12,000 mAh) - >12 Hours Runtime "The Purple Beast"
-- **Rail A (12V)**: Direct drive for NEMA 17 Stepper & Table Lamp Relay
-- **Rail B (5V High Current)**: 5V 5A UBEC for MG996R Servos
-- **Rail C (5V Logic)**: LM2596 Buck Converter (5.1V) for Raspberry Pi 5
-- **Teensy**: Powered via USB from Pi
+- **Source**: Custom 3S2P Li-Ion Array (12,000 mAh) ["Purple" Batteries]
+- **Architecture**: **Dual-Rail Hybrid Power System**
+    - **Rail A (12V)**: Direct power for NEMA 17 Stepper & Table Lamp Relay.
+    - **Rail B (5V High Current)**: 5V 5A UBEC for MG996R Servos.
+    - **Rail C (Clean Logic)**: LM2596 Buck Converter (5.1V) for Raspberry Pi 5.
+- **New Component**: 12V Relay Module (For autonomous control of the desk lamp).
 
-**Total Power Budget**: ~50W peak (Handled by Dual-Rail System)
+**Total Power Budget**: ~60W peak (Handled by Dual-Rail System)
 
 ### 6.5 Physical Integration
 
@@ -536,10 +542,10 @@ Key Packages:
 IDE: Arduino IDE 2.x / PlatformIO
 Core: Teensyduino 1.58+
 Libraries:
-  - AccelStepper.h (for NEMA 17 smoothness)
+  - AccelStepper.h (for NEMA 17 S-Curve Acceleration)
   - Servo.h (for J4/J5)
   - PWMServo (for J2/J3)
-  - Eigen (IK calculations)
+  - Eigen (Hybrid Kinematics)
 
 ```
 
