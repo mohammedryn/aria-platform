@@ -10,7 +10,7 @@
 
 // --- Pin Definitions ---
 // Uses PWM capable pins on Teensy 4.1
-const int PIN_BASE       = 2;
+// const int PIN_BASE       = 2; // DISABLED: Stepper used for base
 const int PIN_SHOULDER   = 3;
 const int PIN_ELBOW      = 4;
 const int PIN_WRIST_P    = 5;
@@ -18,7 +18,7 @@ const int PIN_WRIST_R    = 6;
 const int PIN_GRIPPER    = 7;
 
 // --- Servo Objects ---
-Servo base;
+// Servo base; // DISABLED: Stepper used for base
 Servo shoulder;
 Servo elbow;
 Servo wrist_pitch;
@@ -39,8 +39,8 @@ void setup() {
   // We write the position BEFORE attaching to prevent jitter on startup
   
   // Base
-  base.attach(PIN_BASE);
-  base.write(90);
+  // base.attach(PIN_BASE); // DISABLED: Stepper used for base
+  // base.write(90);
   
   // Shoulder
   shoulder.attach(PIN_SHOULDER);
@@ -74,7 +74,7 @@ void loop() {
   delay(500);
   
   // Periodically reinforce the signal (not strictly necessary with Servo lib, but good safety)
-  base.write(90);
+  // base.write(90); // DISABLED: Stepper used for base
   shoulder.write(90);
   elbow.write(90);
   wrist_pitch.write(90);
