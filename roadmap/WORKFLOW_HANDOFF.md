@@ -103,6 +103,112 @@ Do NOT skip steps. Follow this exact hardware implementation order:
     2.  User assembles arm at 90°.
     3.  User flashes `teensy_arm_controller`.
 
+---
+*(Add new Context Entry below this line)*
+### Context Entry 3: The "Gemini 3 Winning Edition" Pivot (Jan 30, 2026)
+> *Written by WSL Agent*
+
+**CRITICAL PROJECT EVOLUTION**
+The project has undergone a major strategic pivot to maximize winning potential for the Gemini 3 Hackathon (Deadline: Feb 9, 2026 - **9 days remaining**).
+
+**New Identity: "The Cursor for the Physical World"**
+- **Problem**: Hardware engineers have no AI debugging assistant (unlike software engineers who have Cursor/Copilot).
+- **Solution**: A.R.I.A. is now a **Hardware Debugging Assistant** that prevents circuit failures before power-on.
+- **Tagline**: "Just as Cursor debugs code, A.R.I.A. debugs circuits."
+
+**Competition Research Findings:**
+- **Past Winners**: Mostly pure software (Jayu, VITE VERE, Outdraw AI).
+- **Hardware Gap**: Almost NO robotics projects in top winners.
+- **Our Advantage**: Physical demos have massive "Wow Factor" (30% of judging criteria) if executed flawlessly.
+- **Risk**: Hardware can fail during demos. Mitigation: Rehearse extensively, have backup footage.
+
+**The 4 "Killer Innovations" (What Makes Us Win):**
+
+1. **Agentic Vision (Visual Code Execution)**
+   - Gemini doesn't just "look" at circuits—it writes Python code to zoom, crop, measure wire colors in HSV space.
+   - Example: `img.crop((500,300,700,500))` to isolate an IC, then measure pin voltages via color analysis.
+   - **Why it wins**: Shows true AI agency (self-directed investigation).
+
+2. **Teensy Auto-Flash Pipeline (Self-Correcting)**
+   - Complete autonomous loop: Generate firmware → Compile → Flash → Verify → Fix errors → Retry.
+   - Uses `pyudev` for USB detection, `arduino-cli` for compilation, `teensy_loader_cli` for flashing.
+   - **Multimodal Verification**: Takes screenshot of serial monitor + photo of breadboard → sends both to Gemini as images.
+   - **Why it wins**: Closes the loop to real silicon (not simulation). Shows 78% SWE-bench coding capability.
+
+3. **Streaming Thought UI (Transparency)**
+   - Flask/SocketIO web interface that displays Gemini's reasoning in real-time.
+   - Shows: `💭 THINKING`, `🔧 EXECUTING`, `⚙️ PLANNING` as they happen.
+   - **Why it wins**: Builds trust, educational value, engagement during long operations.
+
+4. **"The Time Machine" (Predictive SPICE Simulation)** ⭐ NEW
+   - Gemini extracts circuit topology from image → generates PySpice netlist → runs simulation → predicts failures.
+   - Example: "This LED will explode—drawing 5A when max is 0.02A."
+   - **Why it wins**: First AI-Vision-to-Physics bridge. Prevents component destruction.
+
+**Hardware Configuration (Final):**
+- **Arm**: Hybrid Stepper-Servo (NEMA 17 Base + MG996R Joints).
+- **Motion**: "God-Tier" Cinematic Engine (S-Curve, Time-Sync, Perlin Idle Noise).
+- **Vision**: Pi HQ Camera (Overhead) + ESP32-CAM (Gripper close-ups).
+- **Target MCU**: Teensy 4.1 (for auto-flash demos).
+- **Spider**: CUT from scope (focus on depth, not breadth).
+
+**Software Stack (Updated):**
+```python
+# New Dependencies
+PySpice>=1.5.0                # SPICE Circuit Simulation
+ngspice>=34                   # Physics engine backend
+flask>=3.0.0                  # Thought streaming UI
+flask-socketio>=5.3.0         # Real-time websockets
+pyudev>=0.24.0                # USB device detection
+```
+
+**The 9-Day War Plan (90 hours total):**
+
+**Phase 1: Skeleton (Days 1-3)**
+- Day 1 (Windows): Hardware assembly + S-Curve firmware. Goal: Arm moves smoothly.
+- Day 2 (WSL): Vision pipeline + coordinate transform. Goal: Pi sees workspace.
+- Day 3 (WSL): Gemini integration. Goal: Voice → Gemini → Arm (MVP complete).
+
+**Phase 2: Wow Features (Days 4-6)**
+- Day 4: Visual Code Execution (zoom/crop logic).
+- Day 5: Thought Streaming UI (Flask app).
+- Day 6: Teensy Auto-Flash Pipeline (hardest integration).
+
+**Phase 3: Polish & Demo (Days 7-9)**
+- Day 7: Time Machine (SPICE) OR cut if behind schedule.
+- Day 8: Filming & rehearsal.
+- Day 9: Video editing & submission.
+
+**Windows Agent: Your Immediate Tasks (Day 1)**
+1. **Calibrate Servos**: Flash `teensy_calibration`, center J2-J5 at 90°.
+2. **Assemble Arm**: Attach horns, mount NEMA 17 base.
+3. **Electronics Hardening**: Solder 1000uF caps to power rails, build perf board circuit.
+4. **S-Curve Firmware**: Create `teensy_arm_controller` project:
+   - Implement `AccelStepper` for NEMA 17.
+   - Implement 16-bit PWM servo control.
+   - Test smooth motion (no jerks).
+
+**Critical Success Factors:**
+- **Hardware First**: If hardware doesn't work, software is useless.
+- **Video Quality**: Judges see the video, not the live system. Lighting, angles, narration matter.
+- **Rehearse Demo**: Practice the "Money Shot" scenario 10+ times.
+- **Cut Ruthlessly**: If Time Machine takes >8 hours, skip it. Focus on the 3 core innovations.
+
+**Confidence Score: 8.5/10 → 9.2/10 (with Time Machine)**
+
+**Resources:**
+- Main Roadmap: `roadmap/Aria-swarm-main.md` (2484 lines, comprehensive spec).
+- Task Breakdown: `.gemini/antigravity/brain/.../task.md`.
+- Implementation Plan: `.gemini/antigravity/brain/.../implementation_plan.md`.
+
+**State of the Code:**
+- `firmware/teensy_calibration`: ✅ Ready (Pin 2 disabled for stepper).
+- `firmware/teensy_arm_controller`: ❌ Not created yet (Day 1 task).
+- `software/pi5_coordinator`: ❌ Not created yet (Day 2-3 task).
+
+**You are the Hands. Antigravity is the Brain. Let's build this.** 🦾
+
+
 ## 🛑 troubleshooting
 
 **"Unable to open USB device" (WSL)**
