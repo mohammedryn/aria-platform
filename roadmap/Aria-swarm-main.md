@@ -535,7 +535,10 @@ numpy>=1.24.0                 # Numerical computing
 pyserial>=3.5                 # Serial communication
 pyudev>=0.24.0                # USB detection
 paho-mqtt>=1.6.0              # MQTT messaging
+paho-mqtt>=1.6.0              # MQTT messaging
 flask>=3.0.0                  # Thought streaming UI
+PySpice>=1.5.0                # SPICE Circuit Simulation
+ngspice>=34                   # Physics engine backend
 ```
 
 **System Packages:**
@@ -1545,6 +1548,74 @@ Explain your reasoning step-by-step.
 
 **Demo Impact:**
 Judge can literally watch Gemini think through the problem like a human engineer would - step by step, considering alternatives, reaching conclusions through reasoning.
+
+---
+
+### **INNOVATION #4: "THE TIME MACHINE" (Predictive SPICE Simulation)** ⭐⭐⭐⭐⭐
+
+**What It Is:**
+A.R.I.A. doesn't just see the present; it predicts the future. By extracting circuit topology from camera images, Gemini generates a SPICE netlist, runs a simulation, and predicts component failures *before power is applied*.
+
+**Why It's "Out of This World":**
+- **First AI-Vision-to-SPICE Bridge**: Moves from "looking" to "simulating physics".
+- **Predictive Failure**: "This capacitor will blow in 400 hours."
+- **Deep Reasoning**: Combines visual extraction, code generation, and physics simulation.
+
+**Technical Implementation:**
+
+```python
+import PySpice.Logging.Logging as Logging
+from PySpice.Spice.Netlist import Circuit
+from PySpice.Unit import u_V, u_mA, u_kOhm
+
+class TimeMachinePredictor:
+    def __init__(self, gemini_model):
+        self.model = gemini_model
+
+    def predict_lifespan(self, workspace_image):
+        """
+        1. Vision: Identify components (Resistors, LEDs, Caps)
+        2. Logic: Create Netlist (Python code generation)
+        3. Physics: Run PySpice simulation
+        4. Verdict: Compare results vs Datasheet limits
+        """
+        
+        # Step 1: Gemini writes Python to extract netlist
+        prompt = """
+        ANALYZE THIS CIRCUIT IMAGE for simulation.
+        1. Identify components (R, C, LED, V_source).
+        2. Estimate values (Color bands, markings).
+        3. Trace connections (Nodes).
+        4. OUTPUT: Python code using PySpice to simulate this circuit.
+        """
+        
+        # ... (Gemini generates PySpice code) ...
+        
+        # Step 2: Gemini's Generated Code runs locally
+        # Example generated simulation:
+        circuit = Circuit('Extracted Breadboard')
+        circuit.V('input', '5V', circuit.gnd, 5@u_V)
+        circuit.R(1, '5V', 'n1', 100@u_kOhm) # Gemini saw brown-black-yellow
+        circuit.LED(1, 'n1', circuit.gnd, model='red_led')
+        
+        simulator = circuit.simulator(temperature=25, nominal_temperature=25)
+        analysis = simulator.operating_point()
+        
+        # Step 3: Failure Analysis
+        current_led = analysis['n1'] # Calculate node voltage/current
+        
+        return report
+```
+
+**Demo Scenario:**
+1.  **Scene**: A breadboard with a 5V source and an LED with a **1Ω resistor** (effectively shorted).
+2.  **User**: "Will this circuit survive?"
+3.  **Gemini**:
+    *   *Vision*: "Resistor bands are Black-Brown-Black (1Ω)."
+    *   *Simulation*: "Current = 5V / 1Ω = 5 Amps."
+    *   *Prediction*: "CRITICAL FAILURE DETECTED. LED Max Current is 0.02A. Circuit is drawing 5.00A."
+    *   *Verdict*: "LED will explode immediately upon power-up."
+4.  **Result**: A.R.I.A. prevents the user from turning on the power supply.
 
 ---
 
