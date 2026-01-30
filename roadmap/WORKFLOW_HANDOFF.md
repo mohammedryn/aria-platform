@@ -92,11 +92,16 @@ Do NOT skip steps. Follow this exact hardware implementation order:
 
 ---
 *(Add new Context Entry below this line)*
-### Context Entry 2: Windows Implementation Status (Pending)
-> *To be written by Windows Agent...*
+### Context Entry 2: Windows Implementation Status (Jan 29, 2026)
+> *Written by Windows Agent*
 
-
----
+**Status**: Ready for Hardware Flashing.
+*   **Calibration**: `teensy_calibration` updated. Base servo code disabled to prevent conflict with Stepper driver.
+*   **Controller**: `teensy_arm_controller` created. Implements `AccelStepper` for Base (Pin 2/1) and Servos for J2-J5.
+*   **Next Actions**:
+    1.  User flashes `teensy_calibration`.
+    2.  User assembles arm at 90°.
+    3.  User flashes `teensy_arm_controller`.
 
 ## 🛑 troubleshooting
 

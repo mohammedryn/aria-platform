@@ -215,9 +215,9 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) file for
 
 ## 📧 Contact
 
-**Project Lead**: [Your Name]
-- GitHub: [@your-username](https://github.com/your-username)
-- Email: your.email@example.com
+**Project Lead**: Mohammed Rayan
+- GitHub: [mohammedryn](https://github.com/mohammedryn)
+- Email: mohammedrah1289@gmail.com
 
 ---
 
