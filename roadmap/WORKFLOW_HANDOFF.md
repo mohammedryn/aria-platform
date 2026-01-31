@@ -218,3 +218,27 @@ pyudev>=0.24.0                # USB device detection
 **"Serial Port not found" (Windows)**
 *   **Analysis**: Driver missing or cable loose.
 *   **Fix**: Check Device Manager. Ensure Cable is Data + Power.
+
+---
+*(Add new Context Entry below this line)*
+### Context Entry 3.5: Hardware Finalization (Jan 31, 2026)
+> *Written by WSL Agent*
+
+**CRITICAL HARDWARE DECISIONS (FINAL)**
+
+1.  **Motors**: 
+    *   **Decision**: REJECTED upgrade to ST3215 Serial Bus servos. 
+    *   **Reason**: Protocol complexity (UART/Buffers) would blow the 9-day deadline.
+    *   **Action**: Stick to **MG996R / MG90S (PWM)**. The S-Curve engine will handle smoothness.
+
+2.  **Controller**:
+    *   **Decision**: CONFIRMED **Teensy 4.1**.
+    *   **Reason**: S-Curve math requires FPU and high-res PWM (1kHz+). Arduino Nano (8-bit) is insufficient for "God-Tier" motion.
+
+3.  **Electronics Plan (The "Industrial" Hardening)**:
+    *   **Main Power**: Install **1x 1000uF (or 2200uF)** Capacitor at the main power entry.
+    *   **Distributed Power**: Install **1x 220uF** Capacitor (from user kit) at the **End Effector (Wrist)** to handle local transients.
+    *   **Signal Integrity**: Install **330Ω Resistors** in series on all Servo Signal lines (Teensy Protection + Anti-Ringing).
+    *   **Result**: "Rock Solid" power rail, zero jitter.
+
+**Windows Agent Action**: Proceed to assembly with these exact components.
