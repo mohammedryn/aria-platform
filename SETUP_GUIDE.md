@@ -16,9 +16,9 @@ This guide covers how to connect your Hybrid Arm (Stepper + Servos) and how to u
 | **2** | **STEP** | **Stepper Driver STEP** | Base Steps |
 | **3** | PWM | **Shoulder Servo** (Signal) | J2 |
 | **4** | PWM | **Elbow Servo** (Signal) | J3 |
-| **5** | PWM | **Wrist Pitch** (Signal) | J4 |
-| **6** | PWM | **Wrist Roll** (Signal) | J5 |
-| **7** | PWM | **Gripper** (Signal) | End Effector |
+| **5** | PWM | **Wrist Roll** (Rotate Hand, inside arm) | J4 |
+| **6** | PWM | **Wrist Pitch** (Hinge, moves Up/Down) | J5 |
+| **7** | PWM | **Gripper** (Custom/Disabled for now) | J6 |
 | **GND** | Ground | **Common Ground** | **CRITICAL** |
 | **VIN**| 5V In | 5V Power Supply | Optional (or use USB) |
 

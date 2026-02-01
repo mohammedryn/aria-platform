@@ -58,9 +58,9 @@ void setup() {
   wrist_roll.attach(PIN_WRIST_R);
   wrist_roll.write(90);
 
-  // Gripper (Optional: 90 might be half open)
-  gripper.attach(PIN_GRIPPER);
-  gripper.write(90);
+  // Gripper (User requested to DISABLE for now)
+  // gripper.attach(PIN_GRIPPER);
+  // gripper.write(90);
 
   Serial.println("DONE. Servos are holding position.");
   Serial.println("Now assemble the arm segments at 90 degree offsets.");
@@ -79,5 +79,5 @@ void loop() {
   elbow.write(90);
   wrist_pitch.write(90);
   wrist_roll.write(90);
-  gripper.write(90);
+  // gripper.write(90);
 }

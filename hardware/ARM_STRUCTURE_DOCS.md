@@ -39,9 +39,9 @@
 | **2** | **Stepper STEP** | Blue/Setup Dependent | Base Steps |
 | **3** | **J2 Signal** | White/Orange | Shoulder Position |
 | **4** | **J3 Signal** | White/Orange | Elbow Position |
-| **5** | **J4 Signal** | Orange | Wrist Roll (Rotate Hand) |
-| **6** | **J5 Signal** | Orange | Wrist Pitch (Tilt Hand) |
-| **7** | **J6 Signal** | Orange | Gripper (Open/Close) |
+| **5** | **J4 Signal** | Orange | Wrist Roll (Rotate Hand - Inside Arm) |
+| **6** | **J5 Signal** | Orange | Wrist Pitch (Hinge - Up/Down) |
+| **7** | **J6 Signal** | Orange | Gripper (Custom Spec - Disabled) |
 
 ---
 
