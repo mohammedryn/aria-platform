@@ -1,222 +1,220 @@
+#include <AccelStepper.h>
 #include <Arduino.h>
 #include <Servo.h>
-#include <AccelStepper.h>
 
-// =========================================================================
-// A.R.I.A. Hybrid Arm Controller
-// =========================================================================
-// Hardware: 
-// - J1 (Base): NEMA 17 Stepper (Driver required, e.g., A4988/DRV8825)
-// - J2-J5 + Gripper: Servos (PWM)
-// =========================================================================
 
-// --- Pin Definitions ---
-// STEPPER (User to verify connection!)
-const int PIN_STEPPER_STEP = 2; // Formerly Base Servo Pin
-const int PIN_STEPPER_DIR  = 1; // [CHECK CONNECTION]
+// -------------------------------------------------------------------------
+// 🤖 RAOJ-V2 ARM CONTROLLER (S-CURVE EDITION)
+// -------------------------------------------------------------------------
 
-// SERVOS (Corrected Mappings)
-const int PIN_SHOULDER   = 3;
-const int PIN_ELBOW      = 4;
-const int PIN_WRIST_ROLL = 5; // Inside Arm (Rotate)
-const int PIN_WRIST_PITCH= 8; // MOVED FROM 6 TO 8 (Verify connection!)
-const int PIN_GRIPPER    = 7; // RE-ENABLED (Was User Spec Pin 9, kept 7 for wiring consistency)
+// --- PIN DEFINITIONS ---
+#define STEPPER_DIR_PIN 1
+#define STEPPER_STEP_PIN 2
 
-// --- Config ---
-// Stepper
-const float MAX_SPEED      = 1000.0;
-const float ACCELERATION   = 500.0;
+#define SERVO_J2_PIN 3
+#define SERVO_J3_PIN 4
+#define SERVO_J4_PIN 5
+#define SERVO_J5_PIN 6
+#define SERVO_J6_PIN 7
 
-// Gripper Settings (User Constraints)
-const int GRIPPER_SPEED_DELAY = 30; // Higher = Slower/Smoother
+// --- HARDWARE OBJECTS ---
+Servo s2, s3, s4, s5, s6;
+AccelStepper stepper(AccelStepper::DRIVER, STEPPER_STEP_PIN, STEPPER_DIR_PIN);
 
-// Objects
-// Interface: Driver (1)
-AccelStepper baseStepper(AccelStepper::DRIVER, PIN_STEPPER_STEP, PIN_STEPPER_DIR);
+// --- MOTION CONSTANTS ---
+// Stepper Calibration: Adjust this value based on microstepping
+// Assuming 1600 steps/rev (1/8 microstep) or similar.
+// User will need to tune this "Steps Per Degree" value.
+const float STEPS_PER_DEGREE = 8.88; // Placeholder: 200 * 16 / 360
 
-Servo shoulder;
-Servo elbow;
-Servo wrist_roll;
-Servo wrist_pitch;
-Servo gripper; 
+// --- STATE VARIABLES ---
+struct JointState {
+  float current; // Current angle (degrees)
+  float start;   // Start angle for move
+  float target;  // Target angle
+};
 
-void moveToHome() {
-  Serial.println("Moving to ALERT Stance...");
-  // A "Ready" stance, better than flat 90s
-  shoulder.write(90);    // Slight angle up
-  elbow.write(90);       // Bent forward
-  wrist_roll.write(90);   // Flat
-  wrist_pitch.write(90);  // Level
+JointState joints[6]; // Index 0=J1(Stepper), 1=J2 ... 5=J6
+
+unsigned long moveStartTime = 0;
+unsigned long moveDuration = 1000; // ms
+bool isMoving = false;
+
+// --- S-CURVE MATH (The Magic) ---
+float smoothstep(float t) {
+  // Input t: 0.0 to 1.0
+  // Output: 0.0 to 1.0 with Ease-In / Ease-Out
+  return t * t * (3.0f - 2.0f * t);
 }
 
-void triggerGripperCycle() {
-  Serial.println("Starting Smooth Gripper Cycle...");
-  
-  int startPos = gripper.read();
-  
-  // --- STEP 1: MOVE DOWN BY 60 ---
-  int target1 = startPos - 80;
-  if (target1 < 0) target1 = 0; // Safety clamp
-
-  // Move smooth (blocking)
-  if (startPos > target1) {
-      for (int pos = startPos; pos >= target1; pos--) {
-        gripper.write(pos);
-        delay(GRIPPER_SPEED_DELAY); 
-      }
-  } else {
-      for (int pos = startPos; pos <= target1; pos++) {
-        gripper.write(pos);
-        delay(GRIPPER_SPEED_DELAY); 
-      }
-  }
-  
-  delay(500); // Wait half a second at the bottom
-
-  // --- STEP 2: MOVE UP BY 50 ---
-  int target2 = target1 + 80;
-  if (target2 > 180) target2 = 180; // Safety clamp
-
-  // Move smooth (blocking)
-  if (target1 < target2) {
-      for (int pos = target1; pos <= target2; pos++) {
-        gripper.write(pos);
-        delay(GRIPPER_SPEED_DELAY);
-      }
-  } else {
-      for (int pos = target1; pos >= target2; pos--) {
-        gripper.write(pos);
-        delay(GRIPPER_SPEED_DELAY);
-      }
-  }
-
-  Serial.print("Cycle Complete. Final Angle: ");
-  Serial.println(target2);
-}
-
+// --- SETUP ---
 void setup() {
   Serial.begin(115200);
-  pinMode(LED_BUILTIN, OUTPUT);
 
-  // --- Stepper Setup ---
-  baseStepper.setMaxSpeed(MAX_SPEED);
-  baseStepper.setAcceleration(ACCELERATION);
-  
-  // --- Servo Setup ---
-  shoulder.attach(PIN_SHOULDER);
-  elbow.attach(PIN_ELBOW);
-  wrist_roll.attach(PIN_WRIST_ROLL);
-  wrist_pitch.attach(PIN_WRIST_PITCH, 500, 2500); // Added range for stability
-  gripper.attach(PIN_GRIPPER);
+  // 1. Setup Stepper
+  stepper.setMaxSpeed(5000); // High limit, we control actual speed via loop
+  stepper.setAcceleration(
+      5000); // High accel, we ensure smoothness via S-Curve path
 
-  // Initial Positions (Home/Safe)
-  moveToHome();
-  
-  // Gripper Init (User Spec: Start high enough to subtract 60)
-  gripper.write(100); 
+  // 2. Setup Servos
+  s2.attach(SERVO_J2_PIN);
+  s3.attach(SERVO_J3_PIN);
+  s4.attach(SERVO_J4_PIN);
+  s5.attach(SERVO_J5_PIN);
+  s6.attach(SERVO_J6_PIN);
 
-  Serial.println("A.R.I.A. Hybrid Controller Ready.");
-  Serial.println("Format: shoulder,elbow,wrist_roll,wrist_pitch,gripper");
-  Serial.println("  (Use '1' as 5th value to trigger smooth cycle)");
-  Serial.println("  Examples: 180,80,70,80,1  or  90,90,90,90,90");
-  Serial.println("Commands: 1 (Cycle), H (Home), csv format");
+  // 3. Initialize Positions (Center 90)
+  for (int i = 0; i < 6; i++) {
+    joints[i].current = 90.0;
+    joints[i].target = 90.0;
+    joints[i].start = 90.0;
+  }
+  joints[0].current = 0.0; // Stepper starts at 0
+
+  // Apply specific initial positions
+  s2.write(90);
+  s3.write(90);
+  s4.write(90);
+  s5.write(90);
+  s6.write(90);
+
+  Serial.println("A.R.I.A. Arm Controller Online");
+  Serial.println("Protocol: <J1,J2,J3,J4,J5,J6,TIME_MS>");
+  Serial.println("Example: <45,90,45,90,90,0,2000>");
 }
 
-void loop() {
-  // 1. Run Stepper (MUST be called as often as possible)
-  baseStepper.run();
+// --- PARSING HELPERS ---
+const byte numChars = 64;
+char receivedChars[numChars];
+boolean newData = false;
 
-  // 2. Parsers
-  if (Serial.available() > 0) {
-    String input = Serial.readStringUntil('\n');
-    input.trim(); // Remove whitespace/newlines
+void recvWithStartEndMarkers() {
+  static boolean recvInProgress = false;
+  static byte ndx = 0;
+  char startMarker = '<';
+  char endMarker = '>';
+  char rc;
 
-    if (input.length() == 0) return;
+  while (Serial.available() > 0 && newData == false) {
+    rc = Serial.read();
 
-    // A. Specific Gripper Command
-    if (input == "1") {
-      triggerGripperCycle();
-      return;
-    }
-
-    // B. 5-Axis CSV Mode (Look for commas)
-    if (input.indexOf(',') != -1) {
-      // Manual parsing of string "180,80,70,80,1"
-      int s, e, r, p, g;
-      int firstComma = input.indexOf(',');
-      int secondComma = input.indexOf(',', firstComma + 1);
-      int thirdComma = input.indexOf(',', secondComma + 1);
-      int fourthComma = input.indexOf(',', thirdComma + 1);
-      
-      if(firstComma > 0 && secondComma > 0 && thirdComma > 0 && fourthComma > 0) {
-         s = input.substring(0, firstComma).toInt();
-         e = input.substring(firstComma + 1, secondComma).toInt();
-         r = input.substring(secondComma + 1, thirdComma).toInt();
-         p = input.substring(thirdComma + 1, fourthComma).toInt();
-         g = input.substring(fourthComma + 1).toInt();
-
-         Serial.print(" -> Angles:[S:"); Serial.print(s);
-         Serial.print(" E:"); Serial.print(e);
-         Serial.print(" R:"); Serial.print(r);
-         Serial.print(" P:"); Serial.print(p);
-         Serial.print(" G:"); Serial.print(g);
-         Serial.println("]");
-
-         shoulder.write(s);
-         elbow.write(e);
-         wrist_roll.write(r);
-         wrist_pitch.write(p);
-         
-         // Gripper Logic: 1 = Cycle, else = Absolute
-         if (g == 1) {
-           triggerGripperCycle();
-         } else {
-           gripper.write(g);
-         }
+    if (recvInProgress == true) {
+      if (rc != endMarker) {
+        receivedChars[ndx] = rc;
+        ndx++;
+        if (ndx >= numChars)
+          ndx = numChars - 1;
       } else {
-        Serial.println("Error: Use format: shoulder,elbow,wrist_roll,wrist_pitch,gripper");
+        receivedChars[ndx] = '\0'; // terminate string
+        recvInProgress = false;
+        newData = true;
       }
-      return;
+    } else if (rc == startMarker) {
+      recvInProgress = true;
+      ndx = 0;
+    }
+  }
+}
+
+void parseData() {
+  char *strtokIndx;
+
+  // Format: J1,J2,J3,J4,J5,J6,Time
+
+  // J1 (Stepper, can be negative)
+  strtokIndx = strtok(receivedChars, ",");
+  float t1 = atof(strtokIndx);
+
+  // J2-J6 (Servos)
+  strtokIndx = strtok(NULL, ",");
+  float t2 = atof(strtokIndx);
+  strtokIndx = strtok(NULL, ",");
+  float t3 = atof(strtokIndx);
+  strtokIndx = strtok(NULL, ",");
+  float t4 = atof(strtokIndx);
+  strtokIndx = strtok(NULL, ",");
+  float t5 = atof(strtokIndx);
+  strtokIndx = strtok(NULL, ",");
+  float t6 = atof(strtokIndx);
+
+  // Duration
+  strtokIndx = strtok(NULL, ",");
+  float timeVal = atof(strtokIndx);
+
+  // --- APPLY TO STATE ---
+  // Update Start Positions to current Actual positions
+  for (int i = 0; i < 6; i++)
+    joints[i].start = joints[i].current;
+
+  // Set Targets
+  joints[0].target = t1;
+  joints[1].target = t2;
+  joints[2].target = t3;
+  joints[3].target = t4;
+  joints[4].target = t5;
+  joints[5].target = t6;
+
+  // Set Time (Min 500ms safety)
+  moveDuration = (timeVal < 500) ? 500 : (unsigned long)timeVal;
+
+  moveStartTime = millis();
+  isMoving = true;
+
+  Serial.print("MOVING TO: ");
+  Serial.print(t1);
+  Serial.print(" ");
+  Serial.print(t2);
+  Serial.print(" ");
+  Serial.print(timeVal);
+  Serial.println("ms");
+}
+
+// --- MAIN LOOP ---
+void loop() {
+  // 1. Read Serial
+  recvWithStartEndMarkers();
+  if (newData == true) {
+    parseData();
+    newData = false;
+  }
+
+  // 2. Motion Engine
+  if (isMoving) {
+    unsigned long now = millis();
+    float elapsed = (now - moveStartTime) / (float)moveDuration;
+
+    if (elapsed >= 1.0f) {
+      // FINISHED
+      elapsed = 1.0f;
+      isMoving = false;
+      Serial.println("DONE");
     }
 
-    // C. Legacy Command Mode (H, B 100, S 90)
-    char cmd = toupper(input.charAt(0));
-    int val = 0;
-    if (input.length() > 1) {
-      val = input.substring(1).toInt();
+    // Apply S-Curve
+    float k = smoothstep(elapsed);
+
+    // Update All Joints
+    for (int i = 0; i < 6; i++) {
+      // Interpolate: Current = Start + (Dist * k)
+      float dist = joints[i].target - joints[i].start;
+      joints[i].current = joints[i].start + (dist * k);
     }
 
-    switch(cmd) {
-      case 'H': // Home
-        moveToHome();
-        break;
-      case 'B': // Base
-        Serial.print("Base Move: "); Serial.println(val);
-        baseStepper.move(val); 
-        break;
-      case 'S': // Shoulder
-        Serial.print("Shoulder: "); Serial.println(val);
-        shoulder.write(val);
-        break;
-      case 'E': // Elbow
-        Serial.print("Elbow: "); Serial.println(val);
-        elbow.write(val);
-        break;
-      case 'R': // Roll
-        Serial.print("Wrist Roll: "); Serial.println(val);
-        wrist_roll.write(val);
-        break;
-      case 'P': // Pitch
-        Serial.print("Wrist Pitch: "); Serial.println(val);
-        wrist_pitch.write(val);
-        break;
-      case 'G': // Gripper (Manual)
-        Serial.print("Gripper: "); Serial.println(val);
-        gripper.write(val);
-        break;
-      default: 
-        // Unknown
-        break;
-    }
+    // --- WRITE TO HARDWARE ---
+
+    // J1: Stepper (Degrees -> Steps)
+    long stepperTarget = (long)(joints[0].current * STEPS_PER_DEGREE);
+    stepper.moveTo(stepperTarget);
+    stepper.run(); // Call as often as possible!
+
+    // J2-J6: Servos (Degrees)
+    s2.write((int)joints[1].current);
+    s3.write((int)joints[2].current);
+    s4.write((int)joints[3].current);
+    s5.write((int)joints[4].current);
+    s6.write((int)joints[5].current);
+  } else {
+    // Even when not "profiling", keep stepper inputs active to hold position
+    stepper.run();
   }
 }
