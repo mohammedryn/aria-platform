@@ -18,7 +18,7 @@
 | **J2** | **Shoulder** | **Elevation (Pitch)**. Lifts the main arm boom up/down. | **Futaba S3003** | **Pin 3** |
 | **J3** | **Elbow** | **Elevation (Pitch)**. Moves the forearm forward/backward. | **Futaba S3003** | **Pin 4** |
 | **J4** | **Wrist Roll_1** | **Rotation**. Located *inside* the forearm tube. Rotates the entire hand assembly. | **MG90S (Blue)** | **Pin 5** |
-| **J5** | **Wrist Pitch** | **Tilt**. Located at the wrist hinge. Nods the claw Up/Down. | **MG90S (Blue)** | **Pin 6** |
+| **J5** | **Wrist Pitch** | **Tilt**. Located at the wrist hinge. Nods the claw Up/Down. | **MG90S (Blue)** | **Pin 8** |
 | **J6** | **Gripper** | **Actuation**. Located on the claw gears. Opens/Closes the fingers. | **MG90S (Blue)** | **Pin 7** |
 
 ---
@@ -40,8 +40,9 @@
 | **3** | **J2 Signal** | White/Orange | Shoulder Position |
 | **4** | **J3 Signal** | White/Orange | Elbow Position |
 | **5** | **J4 Signal** | Orange | Wrist Roll (Rotate Hand - Inside Arm) |
-| **6** | **J5 Signal** | Orange | Wrist Pitch (Hinge - Up/Down) |
+| **6** | **(Reserved)** | - | Timer Conflict with AccelStepper |
 | **7** | **J6 Signal** | Orange | Gripper (Custom Spec - Disabled) |
+| **8** | **J5 Signal** | Orange | Wrist Pitch (Hinge - Up/Down) **[MOVED FROM PIN 6]** |
 
 ---
 

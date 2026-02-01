@@ -242,3 +242,184 @@ pyudev>=0.24.0                # USB device detection
     *   **Result**: "Rock Solid" power rail, zero jitter.
 
 **Windows Agent Action**: Proceed to assembly with these exact components.
+
+---
+*(Add new Context Entry below this line)*
+### Context Entry 4: Firmware Upgrade - 5-Axis CSV Control + Wrist Pitch Fix (Feb 1, 2026)
+> *Written by Windows Agent*
+
+**Session Goal**: Implement unified 5-axis CSV control interface and resolve wrist_pitch hardware issue.
+
+**Changes Made to `firmware/teensy_arm_controller/src/main.cpp`:**
+
+#### 1. **New Control Interface: 5-Axis CSV Format**
+- **Previous Behavior**: CSV parser only accepted 4 values (Shoulder, Elbow, Wrist Roll, Wrist Pitch). Gripper was controlled separately via `1` command.
+- **New Behavior**: CSV parser now accepts **5 comma-separated values** in the format:
+  ```
+  shoulder,elbow,wrist_roll,wrist_pitch,gripper
+  ```
+- **Example Inputs**:
+  - `180,80,70,80,1` → Moves arm to specified angles, triggers gripper cycle
+  - `90,90,90,90,90` → Moves all joints to center position
+
+#### 2. **Smart Gripper Logic (Preserved from User Spec)**
+The 5th value in the CSV string controls the gripper with special behavior:
+- **If value = `1`**: Triggers the **Smooth Gripper Cycle**:
+  1. Reads current gripper position
+  2. Moves **-60 degrees** (smooth, 1° per 30ms)
+  3. Waits **500ms**
+  4. Moves **+50 degrees** (smooth, 1° per 30ms)
+  5. Safety clamps prevent going below 0° or above 180°
+- **If value ≠ `1`**: Treats it as an **absolute angle** (e.g., `90` moves gripper to 90°)
+
+**Code Implementation Details:**
+```cpp
+// CSV Parser (Lines 142-178)
+int s, e, r, p, g;  // Added 5th variable 'g'
+int fourthComma = input.indexOf(',', thirdComma + 1);  // Find 4th comma
+
+// Parse all 5 values
+s = input.substring(0, firstComma).toInt();
+e = input.substring(firstComma + 1, secondComma).toInt();
+r = input.substring(secondComma + 1, thirdComma).toInt();
+p = input.substring(thirdComma + 1, fourthComma).toInt();
+g = input.substring(fourthComma + 1).toInt();
+
+// Apply to servos
+shoulder.write(s);
+elbow.write(e);
+wrist_roll.write(r);
+wrist_pitch.write(p);
+
+// Gripper Logic: 1 = Cycle, else = Absolute
+if (g == 1) {
+    triggerGripperCycle();  // Existing function (Lines 52-95)
+} else {
+    gripper.write(g);
+}
+```
+
+#### 3. **Updated Serial Monitor Prompts**
+Changed `setup()` to clearly communicate the new format:
+```cpp
+Serial.println("A.R.I.A. Hybrid Controller Ready.");
+Serial.println("Format: shoulder,elbow,wrist_roll,wrist_pitch,gripper");
+Serial.println("  (Use '1' as 5th value to trigger smooth cycle)");
+Serial.println("  Examples: 180,80,70,80,1  or  90,90,90,90,90");
+Serial.println("Commands: 1 (Cycle), H (Home), csv format");
+```
+
+#### 4. **Critical Hardware Fix: Wrist Pitch Pin Migration**
+**Problem Reported**: `wrist_pitch` servo (J5 - MG90S) was not responding to commands, despite:
+- Servo verified working on Arduino Nano
+- Code logic confirmed correct
+- Power supply verified stable
+
+**Root Cause Analysis**: Pin 6 on Teensy 4.1 can experience timer conflicts when `AccelStepper` library is active (shares FTM timer resources).
+
+**Solution Applied**:
+1. **Pin Change**: Migrated `PIN_WRIST_PITCH` from **Pin 6 → Pin 8**
+   ```cpp
+   // Line 22 (Before)
+   const int PIN_WRIST_PITCH = 6; // Hinge (Up/Down)
+   
+   // Line 22 (After)
+   const int PIN_WRIST_PITCH = 8; // MOVED FROM 6 TO 8 (Verify connection!)
+   ```
+
+2. **Pulse Width Specification**: Added explicit microsecond range for MG90S compatibility
+   ```cpp
+   // Line 109 (Before)
+   wrist_pitch.attach(PIN_WRIST_PITCH);
+   
+   // Line 109 (After)
+   wrist_pitch.attach(PIN_WRIST_PITCH, 500, 2500); // Added range for stability
+   ```
+   - `500µs` = 0° position
+   - `2500µs` = 180° position
+   - Standard range for MG90S/SG90 micro servos
+
+3. **Enhanced Logging**: Added detailed angle parsing feedback
+   ```cpp
+   Serial.print(" -> Angles:[S:"); Serial.print(s);
+   Serial.print(" E:"); Serial.print(e);
+   Serial.print(" R:"); Serial.print(r);
+   Serial.print(" P:"); Serial.print(p);
+   Serial.print(" G:"); Serial.print(g);
+   Serial.println("]");
+   ```
+   - Helps verify parsing correctness
+   - Useful for debugging future issues
+
+**Hardware Action Required**: User physically moved the J5 signal wire from Teensy Pin 6 to Pin 8.
+
+**Result**: ✅ **Wrist pitch now fully operational.**
+
+---
+
+#### **Updated Pin Configuration (Final)**
+| Joint | Motor Type | Teensy Pin | Notes |
+|:------|:-----------|:-----------|:------|
+| **J1 (Base)** | NEMA 17 Stepper | STEP: 2, DIR: 1 | AccelStepper control |
+| **J2 (Shoulder)** | Futaba S3003 | 3 | Standard PWM |
+| **J3 (Elbow)** | Futaba S3003 | 4 | Standard PWM |
+| **J4 (Wrist Roll)** | MG90S | 5 | Standard PWM |
+| **J5 (Wrist Pitch)** | MG90S | **8** ⚠️ **(Changed from 6)** | 500-2500µs range |
+| **J6 (Gripper)** | MG90S | 7 | Smooth cycle logic |
+
+---
+
+#### **Current Firmware State**
+- **File**: `firmware/teensy_arm_controller/src/main.cpp` (222 lines)
+- **Status**: ✅ **Fully Functional**
+- **Control Modes**:
+  1. **CSV Mode**: `180,80,70,80,1` (5 values)
+  2. **Legacy Single Commands**: `S90`, `E120`, `P45`, etc.
+  3. **Home Command**: `H` (Returns to alert stance)
+  4. **Gripper Cycle**: `1` (Standalone trigger)
+
+---
+
+#### **Testing Performed**
+1. ✅ Uploaded firmware to Teensy 4.1
+2. ✅ Opened Serial Monitor (115200 baud)
+3. ✅ Verified startup prompt displays correctly
+4. ✅ Sent test command: `90,90,90,90,90` → All joints moved to center
+5. ✅ Sent gripper cycle: `180,80,70,80,1` → Arm moved, gripper performed smooth cycle
+6. ✅ Verified wrist_pitch responds correctly on Pin 8
+
+---
+
+**Servo Names in Code** (for reference):
+- `shoulder` (J2)
+- `elbow` (J3)
+- `wrist_roll` (J4)
+- `wrist_pitch` (J5)
+- `gripper` (J6)
+- `baseStepper` (J1 - Stepper motor, not servo)
+
+---
+
+#### **Known Limitations & Future Work**
+1. **No Time-Sync**: Joints move independently (fast joints finish before slow ones).
+   - **Future**: Implement trajectory planning with synchronized arrival times.
+2. **No S-Curve Acceleration**: Servos use `write()` (instant command).
+   - **Future**: Implement 16-bit PWM with velocity ramping.
+3. **Blocking Gripper Cycle**: `triggerGripperCycle()` blocks the main loop.
+   - **Future**: Implement state machine for non-blocking operation.
+4. **No Inverse Kinematics**: User must calculate joint angles manually.
+   - **Future**: WSL-side IK solver sends pre-computed angles.
+
+---
+
+**Next Steps for Windows Agent**:
+- Monitor hardware for any electrical issues (brownouts, jitter).
+- If adding more servos, avoid Pins 6, 9, 10 (FTM timer conflicts with AccelStepper).
+- Recommended safe PWM pins: 3, 4, 5, 7, 8, 14, 15, 18, 19.
+
+**Next Steps for WSL Agent**:
+- Implement Python serial wrapper for CSV command generation.
+- Integrate with vision pipeline (camera → Gemini → joint angles → serial).
+- Add IK solver (end-effector coordinates → joint angles).
+
+**Session Complete**: All requested features implemented and verified. ✅
