@@ -55,7 +55,7 @@ void triggerGripperCycle() {
   int startPos = gripper.read();
   
   // --- STEP 1: MOVE DOWN BY 60 ---
-  int target1 = startPos - 60;
+  int target1 = startPos - 80;
   if (target1 < 0) target1 = 0; // Safety clamp
 
   // Move smooth (blocking)
@@ -74,7 +74,7 @@ void triggerGripperCycle() {
   delay(500); // Wait half a second at the bottom
 
   // --- STEP 2: MOVE UP BY 50 ---
-  int target2 = target1 + 50;
+  int target2 = target1 + 80;
   if (target2 > 180) target2 = 180; // Safety clamp
 
   // Move smooth (blocking)
