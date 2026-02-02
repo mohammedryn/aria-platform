@@ -21,7 +21,7 @@ cd /home/rayan/aria-swarm/software/pi5_coordinator
 pip3 install --user google-generativeai opencv-python pillow pyyaml numpy
 
 # Set API key
-export GEMINI_API_KEY="AIzaSyCUfktzZJZbO-XUwg7wPTE3Ffzjq88DXyc"
+export GEMINI_API_KEY="add gemini api"
 
 # Run test
 cd /home/rayan/aria-swarm/software/pi5_coordinator
