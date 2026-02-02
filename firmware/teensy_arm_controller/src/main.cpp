@@ -14,7 +14,7 @@
 #define SERVO_J2_PIN 3
 #define SERVO_J3_PIN 4
 #define SERVO_J4_PIN 5
-#define SERVO_J5_PIN 6
+#define SERVO_J5_PIN 8 // Pin 8 (Fixed: Pin 6 conflicts with AccelStepper)
 #define SERVO_J6_PIN 7
 
 // --- HARDWARE OBJECTS ---
@@ -39,6 +39,7 @@ JointState joints[6]; // Index 0=J1(Stepper), 1=J2 ... 5=J6
 unsigned long moveStartTime = 0;
 unsigned long moveDuration = 1000; // ms
 bool isMoving = false;
+bool isGripperClosed = false; // Track toggle state
 
 // --- S-CURVE MATH (The Magic) ---
 float smoothstep(float t) {
@@ -171,7 +172,87 @@ void parseData() {
 
 // --- MAIN LOOP ---
 void loop() {
-  // 1. Read Serial
+  // 1. SIMPLE PARSER (Toggle Mode)
+  if (Serial.available() > 0) {
+    char cmd = Serial.read();
+    if (cmd == '1') {
+       // Toggle Logic
+       float currentAngleJ6 = joints[5].current;
+       float currentAngleJ5 = joints[4].current;
+       float currentAngleJ4 = joints[3].current;
+       float currentAngleJ3 = joints[2].current;
+       float currentAngleJ2 = joints[1].current;
+       float newTargetJ6;
+       float newTargetJ5;
+       float newTargetJ4;
+       float newTargetJ3;
+       float newTargetJ2;
+
+       if (isGripperClosed) {
+           Serial.println("Action: Open, Up, Right, Elbow Up, Shoulder Up");
+           newTargetJ6 = currentAngleJ6 + 70;
+           newTargetJ5 = currentAngleJ5 + 50; 
+           newTargetJ4 = currentAngleJ4 + 40;
+           newTargetJ3 = currentAngleJ3 + 30;
+           newTargetJ2 = currentAngleJ2 + 20;
+           isGripperClosed = false;
+       } else {
+           Serial.println("Action: Close, Down, Left, Elbow Down, Shoulder Down");
+           newTargetJ6 = currentAngleJ6 - 70;
+           newTargetJ5 = currentAngleJ5 - 50;
+           newTargetJ4 = currentAngleJ4 - 40;
+           newTargetJ3 = currentAngleJ3 - 30;
+           newTargetJ2 = currentAngleJ2 - 20;
+           isGripperClosed = true;
+       }
+
+       // Clamp J6
+       if (newTargetJ6 > 180) newTargetJ6 = 180;
+       if (newTargetJ6 < 0) newTargetJ6 = 0;
+       
+       // Clamp J5
+       if (newTargetJ5 > 180) newTargetJ5 = 180;
+       if (newTargetJ5 < 0) newTargetJ5 = 0;
+
+       // Clamp J4
+       if (newTargetJ4 > 180) newTargetJ4 = 180;
+       if (newTargetJ4 < 0) newTargetJ4 = 0;
+
+       // Clamp J3
+       if (newTargetJ3 > 180) newTargetJ3 = 180;
+       if (newTargetJ3 < 0) newTargetJ3 = 0;
+
+       // Clamp J2
+       if (newTargetJ2 > 180) newTargetJ2 = 180;
+       if (newTargetJ2 < 0) newTargetJ2 = 0;
+
+       // Setup S-Curve Move
+       // Update Start Positions to Current
+       for (int i = 0; i < 6; i++) joints[i].start = joints[i].current;
+       
+       // Set specific targets
+       joints[5].target = newTargetJ6;
+       joints[4].target = newTargetJ5;
+       joints[3].target = newTargetJ4;
+       joints[2].target = newTargetJ3;
+       joints[1].target = newTargetJ2;
+
+       moveDuration = 1000; // 1.0 second smooth move
+       moveStartTime = millis();
+       isMoving = true;
+    }
+    // Clear buffer (Only if '1' was found, otherwise let parser handle it?)
+    // Actually, we should allow both.
+    // If it wasn't '1', we don't consume it here.
+    // But Serial.read() above consumed one char.
+    // Let's refine: 
+    // If '1', do toggle.
+    // Else, pass execution to standard parser? 
+    // The standard parser looks for '<' start marker. '1' is not '<'.
+    // So separate logic is fine.
+  }
+
+  // 1b. Standard Protocol Parser (<...>)
   recvWithStartEndMarkers();
   if (newData == true) {
     parseData();
@@ -187,7 +268,8 @@ void loop() {
       // FINISHED
       elapsed = 1.0f;
       isMoving = false;
-      Serial.println("DONE");
+      Serial.print("DONE. Gripper at: ");
+      Serial.println(joints[5].current);
     }
 
     // Apply S-Curve

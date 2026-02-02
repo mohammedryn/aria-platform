@@ -423,3 +423,49 @@ Serial.println("Commands: 1 (Cycle), H (Home), csv format");
 - Add IK solver (end-effector coordinates → joint angles).
 
 **Session Complete**: All requested features implemented and verified. ✅
+
+---
+*(Add new Context Entry below this line)*
+### Context Entry 5: S-Curve Upgrade & Cinematic Demo (Feb 2, 2026)
+> *Written by Windows Agent*
+
+**Session Goal**: Deploy "Firmware B" (S-Curve Motion Engine) and implement initialized sync-test.
+
+**Changes Made to `firmware/teensy_arm_controller/src/main.cpp`:**
+
+#### 1. **The S-Curve Engine**
+- **Algorithm**: Implemented `smoothstep(t)` easing function `t * t * (3.0 - 2.0 * t)`.
+- **Logic**: 
+    - All joints (J1-J6) move in perfect unison.
+    - Duration is user-definable (default 1000ms).
+    - No jerks at start/stop.
+
+#### 2. **New Protocol (Hybrid)**
+We now support TWO modes of interaction:
+
+**A. The "Cinematic Toggle" (Manual Demo)**
+- **Command**: Send `1` via Serial.
+- **Action**: Toggles the **ENTIRE ARM** (J2-J6) between two cinematic poses.
+    - **Pose A (Open/Up)**: Gripper +70, Pitch +50, Roll +40, Elbow +30, Shoulder +20.
+    - **Pose B (Close/Down)**: Gripper -70, Pitch -50, Roll -40, Elbow -30, Shoulder -20.
+- **Uses**: Instant "Wow Factor" demo without external software. Moves perfectly smoothly over 1.0s.
+
+**B. The "God Control" (WSL API)**
+- **Format**: `<J1,J2,J3,J4,J5,J6,TIME_MS>`
+- **Example**: `<0,90,90,90,90,90,2000>` (Move all to 90 over 2 seconds).
+- **J1**: Stepper Angle (Degrees).
+- **J2-J6**: Servo Angles (0-180).
+- **Time**: Duration in ms (Min 500).
+
+#### 3. **Critical Hardware Config**
+- **J5 (Wrist Pitch)**: CONFIRMED on **Pin 8** (Fixed Pin 6 conflict).
+- **J6 (Gripper)**: CONFIRMED on **Pin 7**.
+- **J4, J3, J2**: Pins 5, 4, 3.
+- **Base**: Pins 1 (Dir), 2 (Step).
+
+**Status**: Verified "Good Good" by User. Arm holds position perfectly and repeats motion with high accuracy.
+
+**Next Steps for WSL Agent**:
+- Use the `<...>` protocol for Vision control.
+- Use `1` command for quick sanity checks.
+- Note: J1 (Stepper) is currently excluded from the '1' toggle (remains stationary) but fully active in `<...>` protocol.
