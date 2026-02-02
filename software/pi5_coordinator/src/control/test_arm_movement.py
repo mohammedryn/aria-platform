@@ -23,29 +23,50 @@ def main():
     print("✅ Connected! Starting Dance in 3 seconds...")
     time.sleep(3)
     
-    # Format: send_command(j1, j2, j3, j4, j5, j6, time)
+    print("✅ Connected!")
+    print("Commands:")
+    print("  '1' + Enter: Toggle Position (Home <-> Active)")
+    print("  'q' + Enter: Quit")
     
-    # 1. HOME POSITION
-    print("📍 Moving to HOME")
-    arm.send_command(0, 90, 90, 90, 90, 90, 2000)
-    time.sleep(2.5) # Wait for move + buffer
+    # State tracking
+    is_active_pose = False
     
-    # 2. LOOKOUT (Shoulder Up, Elbow 90)
-    print("📍 Moving to LOOKOUT")
-    arm.send_command(45, 120, 90, 90, 45, 90, 1500)
-    time.sleep(2.0)
-    
-    # 3. EXTEND (Reach out)
-    print("📍 Moving to EXTEND")
-    arm.send_command(-45, 60, 60, 90, 0, 90, 1500)
-    time.sleep(2.0)
-    
-    # 4. HOME 
-    print("📍 Return to HOME")
-    arm.send_command(0, 90, 90, 90, 90, 90, 2000)
-    
-    arm.close()
-    print("✨ Dance Complete!")
+    try:
+        while True:
+            # Wait for user input
+            choice = input("\nWaiting for command (1/q): ").strip()
+            
+            if choice == '1':
+                if is_active_pose:
+                    # GO HOME (All 90, Stepper 0)
+                    print("⬇️  Moving to HOME...")
+                    # <0, 90, 90, 90, 90, 90, 1000ms>
+                    if arm.send_command(0, 90, 90, 90, 90, 90, 1000):
+                        is_active_pose = False
+                else:
+                    # GO ACTIVE (Reach Out / Gripper Close)
+                    print("⬆️  Moving to ACTION...")
+                    # Example Action Pose: Reach forward + Grip
+                    # J1=0 (Face forward)
+                    # J2=60 (Shoulder Forward)
+                    # J3=60 (Elbow Up)
+                    # J4=90 (Roll Flat)
+                    # J5=0  (Pitch Down)
+                    # J6=180 (Grip Closed)
+                    if arm.send_command(0, 60, 60, 90, 0, 180, 1000):
+                        is_active_pose = True
+                        
+            elif choice.lower() == 'q':
+                print("👋 Quitting...")
+                break
+            else:
+                print("⚠️  Invalid input. Press '1' to toggle.")
+
+    except KeyboardInterrupt:
+        print("\n👋 Interrupted")
+    finally:
+        arm.close()
+        print("🔌 Link Closed")
 
 if __name__ == "__main__":
     main()
