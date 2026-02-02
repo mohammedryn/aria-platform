@@ -84,8 +84,6 @@ def main():
                         time.sleep(0.01)
                         
             elif choice.lower() == 'q':
-                        
-            elif choice.lower() == 'q':
                 print("👋 Quitting...")
                 break
             else:
