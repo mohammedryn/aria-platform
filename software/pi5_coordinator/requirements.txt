@@ -4,6 +4,7 @@ opencv-python
 numpy
 pillow
 pyyaml
+pyserial
 
 # Optional: Development & Testing (install later if needed)
 # pytest
