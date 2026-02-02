@@ -28,8 +28,10 @@ def main():
     print("  '1' + Enter: Toggle Position (Home <-> Active)")
     print("  'q' + Enter: Quit")
     
-    # State tracking
-    is_active_pose = False
+    # Initial State (Matches Firmware Setup)
+    # J1=0, J2..J6=90
+    current_joints = [0.0, 90.0, 90.0, 90.0, 90.0, 90.0] 
+    is_gripper_closed = False # Starts Open/Neutral
     
     try:
         while True:
@@ -37,24 +39,41 @@ def main():
             choice = input("\nWaiting for command (1/q): ").strip()
             
             if choice == '1':
-                if is_active_pose:
-                    # GO HOME (All 90, Stepper 0)
-                    print("⬇️  Moving to HOME...")
-                    # <0, 90, 90, 90, 90, 90, 1000ms>
-                    if arm.send_command(0, 90, 90, 90, 90, 90, 1000):
-                        is_active_pose = False
+                # Exact Logic from Firmware main.cpp
+                if is_gripper_closed:
+                    print("Action: OPEN (+70, +50...)")
+                    # Open (Add offsets)
+                    current_joints[5] += 70 # J6
+                    current_joints[4] += 50 # J5
+                    current_joints[3] += 40 # J4
+                    current_joints[2] += 30 # J3
+                    current_joints[1] += 20 # J2
+                    is_gripper_closed = False
                 else:
-                    # GO ACTIVE (Reach Out / Gripper Close)
-                    print("⬆️  Moving to ACTION...")
-                    # Example Action Pose: Reach forward + Grip
-                    # J1=0 (Face forward)
-                    # J2=60 (Shoulder Forward)
-                    # J3=60 (Elbow Up)
-                    # J4=90 (Roll Flat)
-                    # J5=0  (Pitch Down)
-                    # J6=180 (Grip Closed)
-                    if arm.send_command(0, 60, 60, 90, 0, 180, 1000):
-                        is_active_pose = True
+                    print("Action: CLOSE (-70, -50...)")
+                    # Close (Subtract offsets)
+                    current_joints[5] -= 70
+                    current_joints[4] -= 50
+                    current_joints[3] -= 40
+                    current_joints[2] -= 30
+                    current_joints[1] -= 20
+                    is_gripper_closed = True
+                
+                # Clamp to safe limits (0-180)
+                for i in range(1, 6): # J2 to J6
+                    current_joints[i] = max(0, min(180, current_joints[i]))
+                
+                # Send Command
+                # J1 stays 0
+                arm.send_command(
+                    current_joints[0], 
+                    current_joints[1], 
+                    current_joints[2], 
+                    current_joints[3], 
+                    current_joints[4], 
+                    current_joints[5], 
+                    1000
+                )
                         
             elif choice.lower() == 'q':
                 print("👋 Quitting...")
