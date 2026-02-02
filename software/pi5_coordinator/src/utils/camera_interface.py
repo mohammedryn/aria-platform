@@ -61,6 +61,12 @@ class CameraInterface:
                 logger.info("Detected Raspberry Pi - using picamera2")
                 return "picamera2"
             except ImportError:
+                # Check for system libcamera
+                import shutil
+                if shutil.which("libcamera-hello"):
+                    logger.warning("picamera2 not available, using libcamera-still subprocess")
+                    return "libcamera_sub"
+                
                 logger.warning("picamera2 not available, falling back to webcam")
                 return "webcam"
         else:
@@ -75,6 +81,8 @@ class CameraInterface:
             self._init_picamera2()
         elif self.source == "webcam":
             self._init_webcam()
+        elif self.source == "libcamera_sub":
+            logger.info("Using libcamera subprocess mode (No init required)")
         else:
             raise ValueError(f"Unknown camera source: {self.source}")
     
@@ -124,6 +132,8 @@ class CameraInterface:
         """
         if self.source == "picamera2":
             return self._capture_picamera2()
+        elif self.source == "libcamera_sub":
+            return self._capture_libcamera_sub()
         elif self.source == "webcam":
             return self._capture_webcam()
         else:
@@ -143,6 +153,39 @@ class CameraInterface:
             
         except Exception as e:
             logger.error(f"Failed to capture from Pi Camera: {e}")
+            return None
+
+    def _capture_libcamera_sub(self) -> Optional[np.ndarray]:
+        """Capture from Pi Camera using system command (fallback)."""
+        import subprocess
+        import os
+        
+        try:
+            # Run libcamera-still command
+            # --immediate: fast capture
+            # --nopreview: pure capture
+            # -o: output file
+            cmd = [
+                "libcamera-still",
+                "-o", "/tmp/gemini_capture.jpg",
+                "--immediate",
+                "--nopreview",
+                "--width", str(self.resolution[0]),
+                "--height", str(self.resolution[1]),
+                "--timeout", "1" # Fast timeout
+            ]
+            
+            subprocess.check_call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            # Read back
+            if os.path.exists("/tmp/gemini_capture.jpg"):
+                frame = cv2.imread("/tmp/gemini_capture.jpg")
+                return frame
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to capture via libcamera-still: {e}")
             return None
     
     def _capture_webcam(self) -> Optional[np.ndarray]:
