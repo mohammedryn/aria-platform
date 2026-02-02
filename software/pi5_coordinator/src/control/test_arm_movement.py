@@ -65,7 +65,7 @@ def main():
                 
                 # Send Command
                 # J1 stays 0
-                arm.send_command(
+                if arm.send_command(
                     current_joints[0], 
                     current_joints[1], 
                     current_joints[2], 
@@ -73,7 +73,17 @@ def main():
                     current_joints[4], 
                     current_joints[5], 
                     1000
-                )
+                ):
+                    print("--> Command Sent. Listening for Teensy...")
+                    # Listen for response for 1 second
+                    start_wait = time.time()
+                    while time.time() - start_wait < 1.0:
+                        resp = arm.read_response()
+                        if resp:
+                            print(f"🤖 TEENSY SAID: {resp}")
+                        time.sleep(0.01)
+                        
+            elif choice.lower() == 'q':
                         
             elif choice.lower() == 'q':
                 print("👋 Quitting...")
