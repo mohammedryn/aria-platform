@@ -43,14 +43,14 @@ class GeminiCoordinator:
         # Initialize models (use currently available models)
         # Note: Model names may change - check https://ai.google.dev/models/gemini
         try:
-            # Use stable aliases which auto-resolve to best available model
-            self.model_flash = genai.GenerativeModel('gemini-flash-latest')
-            self.model_pro = genai.GenerativeModel('gemini-pro-latest')
+            # Explicitly use Gemini 3.0 models
+            self.model_flash = genai.GenerativeModel('gemini-3-flash')
+            self.model_pro = genai.GenerativeModel('gemini-3-pro')
         except Exception as e:
-            logger.warning(f"Failed to initialize models: {e}")
-            # Fallback to hardcoded 1.5 if alias fails
-            self.model_flash = genai.GenerativeModel('gemini-1.5-flash')
-            self.model_pro = genai.GenerativeModel('gemini-1.5-pro')
+            logger.warning(f"Failed to initialize Gemini 3 models: {e}")
+            # Fallback to 2.0 Flash/Pro if 3.0 isn't available in specific regions
+            self.model_flash = genai.GenerativeModel('gemini-2.0-flash-latest')
+            self.model_pro = genai.GenerativeModel('gemini-2.0-pro-latest')
         
         # Load prompts from config
         self.prompts = self._load_prompts(config_path)
