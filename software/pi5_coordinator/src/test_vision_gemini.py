@@ -21,8 +21,8 @@ def print_banner():
     print("""
 ╔═══════════════════════════════════════════════════════════╗
 ║                                                           ║
-║         A.R.I.A. Vision + Gemini Test Interface          ║
-║    Natural Language Vision Testing for Robotic System    ║
+║     A.R.I.A. - SENIOR HARDWARE & EMBEDDED ENGINEER        ║
+║    Gemini 3.0 Powered Hardware Debugging & Audit Mode     ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
 """)
@@ -134,9 +134,10 @@ def main():
                     print("""
 Available commands:
   capture  - Take a new photo
-  analyze  - Detailed scene analysis (structured JSON)
-  describe - Natural language scene description
-  objects  - List all detected objects
+  analyze  - Detailed scene audit (Senior Engineer context)
+  describe - Technical scene description
+  objects  - Generate structured BOM (JSON)
+  debug    - Senior Engineer Deep Dive into a specific issue
   help     - Show this help
   exit     - Exit the program
 
@@ -198,6 +199,17 @@ Examples:
                             print(f"  • {obj.get('name', 'Unknown')}")
                     else:
                         print("\n📦 No objects detected")
+                    continue
+
+                elif user_input.lower() == 'debug':
+                    issue = input("🛠️ Describe the hardware issue: ").strip()
+                    if not issue:
+                        print("⚠️ No issue description provided, using general audit.")
+                        issue = "General hardware audit and best practices check."
+                    
+                    print("🔍 Performing Senior Engineer Hardware Review...")
+                    response = gemini.debug_hardware(current_image, issue)
+                    print(f"\n{response}")
                     continue
                 
                 # Natural language question

@@ -205,6 +205,38 @@ If you're unsure about something, say so clearly."""
         except Exception as e:
             logger.error(f"Scene description error: {e}")
             return f"Error describing scene: {e}"
+
+    def debug_hardware(self, image: np.ndarray, issue_description: str) -> str:
+        """
+        Perform a deep dive hardware debugging analysis.
+        
+        Args:
+            image: Camera frame
+            issue_description: Description of the hardware problem
+            
+        Returns:
+            Technical analysis string
+        """
+        try:
+            pil_image = self._numpy_to_pil(image)
+            prompt_template = self.prompts.get('hardware_debugging', 'Analyze this hardware for issues.')
+            # Safeguard if {issue_description} isn't in the template for some reason
+            if "{issue_description}" in prompt_template:
+                prompt = prompt_template.format(issue_description=issue_description)
+            else:
+                prompt = f"{prompt_template}\n\nContext: {issue_description}"
+            
+            # Use Pro model for deep debugging as it requires more reasoning
+            start_time = time.time()
+            response = self.model_pro.generate_content([prompt, pil_image])
+            latency = time.time() - start_time
+            logger.info(f"Gemini Hardware Debugging latency: {latency:.2f}s")
+            
+            return response.text
+            
+        except Exception as e:
+            logger.error(f"Hardware debugging error: {e}")
+            return f"Error performing hardware debug: {e}"
     
     def _numpy_to_pil(self, image: np.ndarray) -> Image.Image:
         """Convert numpy array (BGR) to PIL Image (RGB)."""
