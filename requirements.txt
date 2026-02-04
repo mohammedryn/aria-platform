@@ -1,0 +1,22 @@
+# A.R.I.A. Platform Dependencies
+# Day 1: Foundation
+
+# UI & Desktop Framework
+flet>=0.21.0            # Flutter-based Python UI
+Pillow>=10.0.0          # Image processing
+
+# Computer Vision
+opencv-python>=4.9.0    # Camera capture & processing
+numpy>=1.26.0           # Array manipulation for CV
+
+# AI & Reasoning
+google-generativeai>=0.4.0  # Gemini API SDK
+python-dotenv>=1.0.0        # Environment variable management
+
+# Hardware Interface
+pyserial>=3.5           # Serial communication
+platformio>=6.1.13      # CLI for firmware flashing
+
+# Tools & Utilities
+pydantic>=2.6.0         # Data validation for MCP tools
+aiohttp>=3.9.0          # Async HTTP requests
