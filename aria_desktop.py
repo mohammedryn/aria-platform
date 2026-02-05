@@ -1,5 +1,10 @@
 import flet as ft
 import cv2
+# Reduce OpenCV terminal noise: only show errors (no "can't capture by index" warnings during camera scan)
+try:
+    cv2.setLogLevel(3)  # 3 = LOG_LEVEL_ERROR; 4 = SILENT
+except AttributeError:
+    pass
 import threading
 import base64
 import time
@@ -49,6 +54,12 @@ class AriaDesktopApp:
         self.run_counter = 0
         self.current_run_body = None
         self.selected_model = "flash"  # "flash" or "pro"
+        self.thought_stream_enabled = True  # When False, thought agent is not called (saves API)
+        self.is_processing = False  # True while chat/thought agents are running
+        
+        # UI control refs (will be set during UI build)
+        self._progress_ring = None
+        self._status_text = None
 
         # LEFT PANEL: Cortex Log (Thinking)
         self.cortex_log = ft.ListView(
@@ -156,6 +167,20 @@ class AriaDesktopApp:
             ])
         )
 
+        # Thought stream toggle (saves API when off)
+        self.thought_stream_switch = ft.Switch(
+            value=True,
+            active_color=AriaTheme.ACCENT_MAIN,
+            on_change=self.handle_thought_stream_toggle,
+        )
+        # Clear thought stream button
+        self.clear_thought_btn = ft.IconButton(
+            ft.Icons.DELETE_SWEEP,
+            icon_color=AriaTheme.TEXT_DIM,
+            icon_size=18,
+            tooltip="Clear thought stream",
+            on_click=self.handle_clear_thought_stream,
+        )
         # Thought stream (bottom) – shows "thinking" like Cursor tool logs
         log_section = ft.Container(
             **AriaTheme.params_glass_container,
@@ -164,7 +189,11 @@ class AriaDesktopApp:
                 ft.Row([
                     ft.Icon(ft.Icons.TERMINAL, size=12, color=AriaTheme.ACCENT_SEC),
                     ft.Text("THOUGHT STREAM", color=AriaTheme.ACCENT_SEC, size=11, weight="bold"),
-                ]),
+                    ft.Container(expand=True),
+                    ft.Text("On", size=9, color=AriaTheme.TEXT_DIM),
+                    self.thought_stream_switch,
+                    self.clear_thought_btn,
+                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 ft.Divider(color=AriaTheme.BORDER, thickness=1),
                 ft.Container(
                     content=self.cortex_log,
@@ -182,6 +211,13 @@ class AriaDesktopApp:
         )
 
         # --- MAIN CHAT PANEL (Cursor-style center chat) ---
+        self.send_button = ft.IconButton(
+            ft.Icons.SEND_ROUNDED,
+            icon_color=AriaTheme.ACCENT_SEC,
+            icon_size=22,
+            on_click=lambda e: self.handle_chat_submit(e),
+            tooltip="Send message",
+        )
         self.input_field = ft.TextField(
             hint_text="Ask A.R.I.A...",
             border_color=AriaTheme.BORDER,
@@ -254,13 +290,7 @@ class AriaDesktopApp:
                     ft.Row(
                         [
                             self.input_field,
-                            ft.IconButton(
-                                ft.Icons.SEND_ROUNDED,
-                                icon_color=AriaTheme.ACCENT_SEC,
-                                icon_size=22,
-                                on_click=lambda e: self.handle_chat_submit(e),
-                                tooltip="Send message",
-                            ),
+                            self.send_button,
                         ],
                         alignment=ft.MainAxisAlignment.END,
                     ),
@@ -283,15 +313,9 @@ class AriaDesktopApp:
                         border_radius=2
                     ),
                     ft.Container(expand=True),
+                    # Status: "Ready" or "Thinking..." (loading state)
                     ft.Container(
-                        content=ft.Row(
-                            [
-                                ft.Icon(ft.Icons.CIRCLE, size=10, color=AriaTheme.ACCENT_MAIN),
-                                ft.Text("Ready", size=11, color=AriaTheme.TEXT_DIM),
-                            ],
-                            spacing=4,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
+                        content=self._build_status_row(),
                         padding=ft.Padding.only(left=8, right=8, top=4, bottom=4),
                         border_radius=999,
                         bgcolor="#06111F",
@@ -313,6 +337,47 @@ class AriaDesktopApp:
         quota_status = self.coordinator.check_quota_status()
         if quota_status["warning_level"] != "ok":
             self.log_event("SYSTEM", quota_status["message"])
+
+    def _build_status_row(self):
+        """Build status row and keep refs to progress ring and text for loading state."""
+        # Create controls and store references for later updates
+        self._progress_ring = ft.ProgressRing(
+            visible=False, 
+            width=14, 
+            height=14, 
+            stroke_width=2, 
+            color=AriaTheme.ACCENT_SEC
+        )
+        self._status_text = ft.Text("Ready", size=11, color=AriaTheme.TEXT_DIM)
+        return ft.Row(
+            [
+                self._progress_ring,
+                ft.Icon(ft.Icons.CIRCLE, size=10, color=AriaTheme.ACCENT_MAIN),
+                self._status_text,
+            ],
+            spacing=6,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+
+    def _set_processing(self, processing: bool):
+        """Enable/disable input and send button; show Thinking... or Ready."""
+        self.is_processing = processing
+        
+        # Update status indicator controls if they exist
+        if self._progress_ring is not None:
+            self._progress_ring.visible = processing
+        if self._status_text is not None:
+            self._status_text.value = "Thinking..." if processing else "Ready"
+        
+        # Update input and send button
+        if self.input_field:
+            self.input_field.disabled = processing
+        if self.send_button:
+            self.send_button.disabled = processing
+        
+        # Force full page update to ensure UI reflects all changes
+        if self.page:
+            self.page.update()
 
     def start_new_run(self, user_text: str):
         """
@@ -523,6 +588,10 @@ class AriaDesktopApp:
             self.page.update()
 
     def detect_cameras(self):
+        """
+        Scan for cameras by trying indices 0–4 with DSHOW/MSMF (Windows) or V4L2 (Linux).
+        OpenCV prints warnings when an index has no camera; we set cv2.setLogLevel(3) at startup to hide them.
+        """
         self.available_cameras = []
         is_windows = self.page.platform == "windows" or sys.platform == "win32"
         
@@ -561,6 +630,21 @@ class AriaDesktopApp:
             self.log_event("SYSTEM", f"SCAN_COMPLETE: {len(self.available_cameras)} DEVS")
             
         if self.page:
+            self.page.update()
+
+    def handle_thought_stream_toggle(self, e):
+        """Toggle thought stream on/off (when off, thought agent is not called — saves API)."""
+        self.thought_stream_enabled = bool(e.control.value)
+        self.log_event("SYSTEM", f"THOUGHT_STREAM: {'ON' if self.thought_stream_enabled else 'OFF'}")
+
+    def handle_clear_thought_stream(self, e):
+        """Clear all runs and cards in the thought stream; reset run counter."""
+        self.cortex_log.controls.clear()
+        self.run_counter = 0
+        self.current_run_body = None
+        # Log after clear so one system card appears
+        if self.page:
+            self.log_event("SYSTEM", "THOUGHT_STREAM_CLEARED")
             self.page.update()
 
     def handle_model_change(self, e):
@@ -657,70 +741,70 @@ class AriaDesktopApp:
         self.test_mode = False
 
     def handle_chat_submit(self, e):
-        user_text = self.input_field.value
+        user_text = (self.input_field.value or "").strip()
         if not user_text:
             return
-            
-        # Start a new grouped run in the Thought Stream for this instruction.
-        self.start_new_run(user_text)
+        if self.is_processing:
+            return
 
+        # Disable input and send; show "Thinking..." (do this first before any other updates)
+        self._set_processing(True)
+
+        # Start a new grouped run in the Thought Stream (if enabled we'll fill it; if not, minimal logs only).
+        self.start_new_run(user_text)
         self.add_chat_message("USER", user_text)
         self.input_field.value = ""
-        # Note: focus() is async but we're in sync context - UI will handle focus on update
-        self.page.update()
-        
-        # Define the async task
+        # _set_processing already called page.update(), but we need one more for the new run and message
+        if self.page:
+            self.page.update()
+
         async def process_request():
-            # placeholder
-            self.add_chat_message("A.R.I.A", "") 
-            # Get the last added control (the empty AI bubble) 
-            # Note: add_chat_message appends a Row to chat_history.controls
-            # The Text control is deep inside: Row -> Container -> Column -> Text(index 1)
-            ai_bubble_row = self.chat_history.controls[-1]
-            ai_text_control = ai_bubble_row.controls[0].content.controls[1]
-            
-            full_response = ""
+            try:
+                self.add_chat_message("A.R.I.A", "")
+                ai_bubble_row = self.chat_history.controls[-1]
+                ai_text_control = ai_bubble_row.controls[0].content.controls[1]
+                full_response = ""
 
-            async def stream_chat():
-                nonlocal full_response
-                async for chunk in self.coordinator.process_query(
-                    user_text, 
-                    image_data=self.current_frame_bytes,
-                    log_callback=lambda src, txt: self.log_event(src, txt),
-                    preferred_model=self.selected_model
-                ):
-                    full_response += chunk
-                    ai_text_control.value = full_response
-                    self.page.update()
-                
-                # Log quota status after request completes
-                quota_status = self.coordinator.check_quota_status()
-                if quota_status["warning_level"] != "ok":
-                    self.log_event("SYSTEM", quota_status["message"])
+                async def stream_chat():
+                    nonlocal full_response
+                    async for chunk in self.coordinator.process_query(
+                        user_text,
+                        image_data=self.current_frame_bytes,
+                        log_callback=lambda src, txt: self.log_event(src, txt),
+                        preferred_model=self.selected_model,
+                    ):
+                        full_response += chunk
+                        ai_text_control.value = full_response
+                        if self.page:
+                            self.page.update()
+                    quota_status = self.coordinator.check_quota_status()
+                    if quota_status["warning_level"] != "ok":
+                        self.log_event("SYSTEM", quota_status["message"])
 
-            async def stream_thoughts():
-                # Secondary narrator agent dedicated to the THOUGHT STREAM panel.
-                async for line in self.coordinator.generate_thought_stream(
-                    user_text,
-                    image_data=self.current_frame_bytes,
-                    log_callback=lambda src, txt: self.log_event(src, txt),
-                ):
-                    # Each yielded line becomes its own cortex log entry.
-                    self.log_event("THINKING", line)
+                async def stream_thoughts():
+                    async for line in self.coordinator.generate_thought_stream(
+                        user_text,
+                        image_data=self.current_frame_bytes,
+                        log_callback=lambda src, txt: self.log_event(src, txt),
+                    ):
+                        self.log_event("THINKING", line)
 
-            # Run both agents concurrently without blocking the UI thread.
-            await asyncio.gather(stream_chat(), stream_thoughts())
+                if self.thought_stream_enabled:
+                    await asyncio.gather(stream_chat(), stream_thoughts())
+                else:
+                    await stream_chat()
+            finally:
+                self.current_run_body = None
+                # Re-enable UI (this runs in background thread, but Flet handles it)
+                self._set_processing(False)
 
-            # Mark run as finished by clearing the active run body; new
-            # user messages will create fresh runs.
-            self.current_run_body = None
-
-        # Run in a separate thread to not block UI
         def run_async_loop():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(process_request())
-            loop.close()
+            try:
+                loop.run_until_complete(process_request())
+            finally:
+                loop.close()
 
         threading.Thread(target=run_async_loop, daemon=True).start()
 

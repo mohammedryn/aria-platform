@@ -182,9 +182,6 @@ class AriaDesktopApp:
         if source == "Electronics":
             icon = ft.Icons.ELECTRICAL_SERVICES
             color = ft.Colors.CYAN_200
-        elif source == "Mechanical":
-            icon = ft.Icons.BUILD
-            color = ft.Colors.AMBER_200
         elif source == "System":
             icon = ft.Icons.COMPUTER
             color = ft.Colors.GREY_400

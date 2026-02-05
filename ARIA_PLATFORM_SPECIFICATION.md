@@ -16,7 +16,7 @@
 
 ## 🎯 Executive Summary
 
-**A.R.I.A.** is a revolutionary AI-powered platform that brings the "Cursor for Code" paradigm to the **physical world**. It combines Gemini 3.0's multimodal reasoning with autonomous action loops to create an intelligent assistant for electronics and mechanical engineering.
+**A.R.I.A.** is a revolutionary AI-powered platform that brings the "Cursor for Code" paradigm to the **physical world**. It combines Gemini 3.0's multimodal reasoning with autonomous action loops to create an intelligent assistant for **electronics and hardware engineering**.
 
 ### The Core Innovation
 A **self-healing hardware development environment** that:
@@ -102,7 +102,6 @@ class GeminiCoordinator:
     
     def __init__(self):
         self.electronics_engineer = ElectronicsAgent()
-        self.mechanical_engineer = MechanicalAgent()
         self.active_session = None
         
     async def analyze_workspace(self, image: bytes) -> Analysis:
@@ -181,64 +180,27 @@ System Instructions:
     - Beginner-friendly explanations when needed
 ```
 
-### The Mechanical Engineer
+### Focus: Electronics & Hardware Only
 
-```yaml
-System Instructions:
-  Role: Senior Mechanical Engineer (Robotics & Product Design)
-  
-  Capabilities:
-    - Guide physical assembly sequences
-    - Identify structural weaknesses and stress points
-    - Recommend fasteners, tolerances, and materials
-    - Verify alignment and perpendicularity
-    - Suggest manufacturing improvements (3D printing, CNC)
-    - Analyze gear trains and linkages
-    
-  Output Format:
-    - Metric units (mm, kg, N)
-    - Assembly sequences with visual references
-    - Critical dimension callouts
-    
-  Tooling:
-    - analyze_stl: Parse 3D model files
-    - measure_distance: Calculate dimensions from image
-    - lookup_fastener: Find appropriate screw/bolt specs
-    
-  Personality:
-    - Practical and hands-on
-    - Focuses on "what to do next"
-    - Safety-conscious (warns about pinch points, sharp edges)
-```
+A.R.I.A. focuses on **electronics and hardware engineering** (circuits, firmware, bring-up, debugging). Mechanical assembly personas are out of scope for the core product.
 
-### Council Collaboration Example
+### Electronics & Hardware Example
 
 ```
 User: "My servo keeps twitching"
 
 ┌─────────────────────────────────────────────────────────────────┐
-│ 🔌 ELECTRONICS ENGINEER:                                        │
-│ Looking at your wiring, I see the servo is powered from the     │
-│ Arduino 5V pin. This is likely causing voltage drops when the   │
-│ servo draws current, which destabilizes the microcontroller.    │
+│ 🔌 ELECTRONICS / HARDWARE:                                      │
+│ Looking at your wiring, the servo is powered from the Arduino   │
+│ 5V pin. This causes voltage drops when the servo draws current, │
+│ which can destabilize the MCU and cause twitching.               │
 │                                                                  │
-│ Recommendation: Add a dedicated 5V supply for the servo, and    │
-│ add a 100µF capacitor across the servo power terminals.         │
-├─────────────────────────────────────────────────────────────────┤
-│ 🔧 MECHANICAL ENGINEER:                                         │
-│ I also notice the servo horn screw is loose (I can see a gap    │
-│ in the image). Even with correct power, a loose horn will       │
-│ cause backlash and apparent "twitching" under load.             │
+│ Recommendation:                                                  │
+│ 1. Add a dedicated 5V supply for the servo                       │
+│ 2. Add a 100µF capacitor across the servo power terminals       │
+│ 3. Check mechanical: ensure servo horn screw is tight (backlash)  │
 │                                                                  │
-│ Recommendation: Tighten the center screw. If you've lost the    │
-│ original, use an M2x8 machine screw.                            │
-├─────────────────────────────────────────────────────────────────┤
-│ 🎯 COUNCIL CONSENSUS:                                           │
-│ 1. Add dedicated 5V servo power supply                          │
-│ 2. Add 100µF decoupling capacitor                               │
-│ 3. Tighten servo horn screw                                     │
-│                                                                  │
-│ [AR OVERLAY: Highlights power wire, capacitor location, screw]  │
+│ [AR OVERLAY: Highlights power wire, capacitor location]         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -255,15 +217,11 @@ class ThoughtStream:
         self.ui_callback = None
     
     async def stream_council_discussion(self, query: str, image: bytes):
-        """Show Electronics + Mechanical debate in real-time"""
+        """Show Electronics & Hardware reasoning in real-time"""
         
-        # Stream from Electronics Engineer
+        # Stream from Electronics / Hardware agent
         async for chunk in self.electronics_agent.stream_response(query, image):
             self.emit("🔌 Electronics", chunk)
-        
-        # Stream from Mechanical Engineer  
-        async for chunk in self.mechanical_agent.stream_response(query, image):
-            self.emit("🔧 Mechanical", chunk)
         
         # Generate consensus
         consensus = await self.generate_consensus()
@@ -273,10 +231,8 @@ class ThoughtStream:
         """Push thought to UI in real-time"""
         # UI shows:
         # 🔌 Electronics: "Analyzing power delivery..."
-        # 🔧 Mechanical: "Servo mount looks stable"
         # 🔌 Electronics: "Found voltage drop - need capacitor"
-        # 🔧 Mechanical: "Agreed, also tighten that screw"
-        # ✅ CONSENSUS: "Add 100µF cap, tighten servo screw"
+        # ✅ CONSENSUS: "Add 100µF cap, check servo power"
         if self.ui_callback:
             self.ui_callback(source, text)
 ```
@@ -296,11 +252,9 @@ class ThoughtStream:
 │ 💭 COUNCIL THOUGHT STREAM                                       │
 ├─────────────────────────────────────────────────────────────────┤
 │ 🔌 Electronics: Analyzing power delivery...                     │
-│ 🔧 Mechanical: Servo mount looks stable                         │
 │ 🔌 Electronics: Found voltage drop - need capacitor             │
-│ 🔧 Mechanical: Agreed, also tighten that screw                  │
 │ ─────────────────────────────────────────────────────────────── │
-│ ✅ CONSENSUS: Add 100µF cap, tighten servo screw                │
+│ ✅ CONSENSUS: Add 100µF cap, check servo power                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -326,7 +280,7 @@ The hackathon specifically requests:
 │  2. REASON ───────────────────────────────────────────────────┤     │
 │     │ Council of Hardware analyzes scene                       │     │
 │     │ - Electronics Engineer: Circuit analysis                 │     │
-│     │ - Mechanical Engineer: Physical assessment               │     │
+│     │ - Hardware: Power, wiring, and physical constraints       │     │
 │     │ - Gemini Pro: Deep multi-file reasoning                  │     │
 │     ▼                                                          │     │
 │  3. PLAN ─────────────────────────────────────────────────────┤     │
@@ -462,7 +416,7 @@ python aria_desktop.py
 │ │    LIVE CAMERA       │ │ I see a missing ground connection     │ │
 │ │    ┌─────────┐       │ │ on the sensor. Connect pin 3 to GND.  │ │
 │ │    │ [Board] │       │ ├────────────────────────────────────────┤ │
-│ │    │  ───→   │ AR    │ │ 🔧 Mechanical Engineer               │ │
+│ │    │  ───→   │ AR    │ │ (Hardware / physical constraints)    │ │
 │ │    │ [LED]   │ Arrow │ │ The bracket looks secure. Proceed     │ │
 │ │    └─────────┘       │ │ with wiring after fixing the ground.  │ │
 │ │                      │ ├────────────────────────────────────────┤ │
@@ -741,7 +695,7 @@ await gemini_flash.parse(
 |------|------|--------|
 | Finalize project specification (this document) | 2h | ✅ |
 | Initialize Git repository structure | 1h | ⬜ |
-| Set up Google AI Studio prompts (Electronics + Mechanical) | 2h | ⬜ |
+| Set up Google AI Studio prompts (Electronics & Hardware) | 2h | ⬜ |
 | Create basic Flet desktop UI shell | 3h | ⬜ |
 | Implement camera capture (OpenCV) | 2h | ⬜ |
 | Test Gemini API integration (image → text) | 2h | ⬜ |
@@ -874,8 +828,7 @@ aria-platform/
 │   │   ├── hardware_link.py
 │   │   └── vision_link.py
 │   ├── agents/
-│   │   ├── electronics_engineer.py
-│   │   └── mechanical_engineer.py
+│   │   └── electronics_engineer.py
 │   ├── ui/
 │   │   └── desktop_app.py
 │   └── tools/
@@ -886,8 +839,7 @@ aria-platform/
 │   ├── vite.config.ts
 │   └── src/
 ├── prompts/                     # AI Studio exports
-│   ├── electronics_engineer.md
-│   └── mechanical_engineer.md
+│   └── electronics_engineer.md
 ├── docs/
 │   ├── architecture.md
 │   └── ARIA_PLATFORM_SPECIFICATION.md

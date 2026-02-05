@@ -14,7 +14,7 @@ A.R.I.A. is a **Hardware-Aware Operating System** that turns any camera into an 
 ## 🚀 Features
 
 - **👁️ Universal Vision**: Connects to USB Webcams, Pi Cameras, or Phone Cameras (WebRTC).
-- **🧠 The Council**: Two specialized AI agents (Electronics & Mechanical) debate and solve problems.
+- **🧠 Electronics & Hardware Focus**: AI assistant specialized in electronics design, circuits, firmware, and hardware bring-up.
 - **⚡ Autonomous Action**: Writes code and flashes firmware to Arduino/Teensy/ESP32 automatically.
 - **🔄 Self-Healing Loop**: Verifies if the code worked by watching the physical device (e.g., "Did the LED blink?").
 - **📱 Universal Client**: Access via Desktop App (Power User) or Mobile Web (Field Agent).
@@ -25,10 +25,11 @@ A.R.I.A. is a **Hardware-Aware Operating System** that turns any camera into an 
 
 ```
 aria-platform/
-├── aria_desktop.py          # 🖥️ Desktop App Entry Point
+├── aria_desktop.py          # 🖥️ Desktop App (chat + thought stream + vision)
+├── aria_desktop_ide.py      # 🖥️ IDE-style UI (code workspace + command bar + suggestions sidebar)
 ├── src/                     # 🧠 Core Python Logic
 │   ├── core/                # Orchestrators (Vision, Hardware, Gemini)
-│   ├── agents/              # The Council (Electronics_Eng, Mechanical_Eng)
+│   ├── agents/              # Electronics & Hardware (optional future agents)
 │   └── tools/               # MCP Tooling (Datasheets, PlatformIO)
 ├── web/                     # 📱 Mobile PWA (Vite + React)
 ├── prompts/                 # 💬 System Instructions for Google AI Studio
@@ -52,8 +53,11 @@ cd aria-platform
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Run the Desktop Agent
+# 3. Run the Desktop Agent (chat + thought stream + vision)
 python aria_desktop.py
+
+# Or run the IDE-style UI (code workspace, command bar, contextual suggestions)
+python aria_desktop_ide.py
 ```
 
 ---

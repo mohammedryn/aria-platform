@@ -7,7 +7,7 @@ import re
 from typing import Optional
 
 # Suppress deprecation warning for google.generativeai until migration to google-genai
-warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
+warnings.filterwarnings("ignore", category=FutureWarning, message=".*generativeai.*")
 import google.generativeai as genai
 
 
@@ -28,6 +28,17 @@ class GeminiCoordinator:
         # Approximate free tier limits (conservative estimates)
         self.free_tier_daily_limit = 50  # Conservative estimate
         self.free_tier_warning_threshold = 40  # Warn at 80%
+        
+        # Initialize models if API key is available
+        if self.api_key:
+            genai.configure(api_key=self.api_key)
+            # Initialize the Gemini 3.0 Fleet (Preview)
+            self.flash_model = genai.GenerativeModel("gemini-3-flash-preview")
+            self.pro_model = genai.GenerativeModel("gemini-3-pro-preview")
+        else:
+            # Initialize as None to prevent AttributeError
+            self.flash_model = None
+            self.pro_model = None
     
     def check_quota_status(self, log_callback=None) -> dict:
         """
@@ -81,12 +92,6 @@ class GeminiCoordinator:
         elif status["warning_level"] == "warning" and "warning" not in self.quota_warnings_shown:
             log_callback("SYSTEM", status["message"])
             self.quota_warnings_shown.add("warning")
-
-        if self.api_key:
-            genai.configure(api_key=self.api_key)
-            # Initialize the Gemini 3.0 Fleet (Preview)
-            self.flash_model = genai.GenerativeModel("gemini-3-flash-preview")
-            self.pro_model = genai.GenerativeModel("gemini-3-pro-preview")
     
     def _parse_quota_error(self, error: Exception) -> dict:
         """
@@ -234,7 +239,7 @@ class GeminiCoordinator:
             log_callback("THINKING", "Processing input vector...")
 
         # 1. REAL AI PATH
-        if self.api_key:
+        if self.api_key and self.flash_model and self.pro_model:
             try:
                 # Model selection: user preference overrides automatic routing
                 if preferred_model == "pro":
@@ -267,7 +272,8 @@ class GeminiCoordinator:
 
                 # SYSTEM PROMPT (Injected into context)
                 system_prompt = (
-                    "You are A.R.I.A (Autonomous Robotic Intelligence Agent), a senior hardware engineer and expert coder. "
+                    "You are A.R.I.A (Autonomous Robotic Intelligence Agent), a senior electronics and hardware engineer and expert coder. "
+                    "Your focus is electronics design, circuits, firmware, and hardware bring-up—not mechanical assembly. "
                     "Your goal is to build hardware with the user. "
                     "DO NOT behave like a generic AI assistant. DO NOT give generic tutorials unless asked. "
                     "Instead, act like a co-worker sitting next to the user. "
@@ -360,9 +366,12 @@ class GeminiCoordinator:
         down the main chat response.
         """
         # If no real model is available, provide a graceful degradation.
-        if not self.api_key:
+        if not self.api_key or not self.flash_model:
             if log_callback:
-                log_callback("SYSTEM", "THOUGHT_STREAM_DISABLED_NO_API_KEY")
+                if not self.api_key:
+                    log_callback("SYSTEM", "THOUGHT_STREAM_DISABLED_NO_API_KEY")
+                else:
+                    log_callback("SYSTEM", "THOUGHT_STREAM_DISABLED_MODELS_NOT_INITIALIZED")
             yield "Thought stream unavailable: set GEMINI_API_KEY to enable detailed reasoning trace."
             return
 
@@ -382,7 +391,7 @@ class GeminiCoordinator:
                     "a bracketed phase name, for example:\n"
                     "[21:41:01] [PLAN] Parsing user intent...\n"
                     "[21:41:02] [SEARCH] Scanning repository for relevant files...\n"
-                    "Stay tightly grounded in the user question and domain (robotics / hardware / code). "
+                    "Stay tightly grounded in the user question and domain (electronics / hardware / firmware / code). "
                     "Do NOT restate the final answer contents in full; focus on the reasoning and actions."
                 )
 

@@ -16,7 +16,7 @@
 
 ## 🎯 Executive Summary
 
-**A.R.I.A.** is a revolutionary AI-powered platform that brings the "Cursor for Code" paradigm to the **physical world**. It combines Gemini 3.0's multimodal reasoning with autonomous action loops to create an intelligent assistant for electronics and mechanical engineering.
+**A.R.I.A.** is a revolutionary AI-powered platform that brings the "Cursor for Code" paradigm to the **physical world**. It combines Gemini 3.0's multimodal reasoning with autonomous action loops to create an intelligent assistant for **electronics and hardware engineering**.
 
 ### The Core Innovation
 A **self-healing hardware development environment** that:
