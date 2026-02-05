@@ -15,21 +15,22 @@ from src.core.coordinator import GeminiCoordinator
 
 # --- THEME CONFIGURATION ---
 class AriaTheme:
-    # Colors
-    BACKGROUND = "#050505"      # Deepest Black
-    SURFACE    = "#0A0A0A"      # Slightly lighter
-    BORDER     = "#333333"      # Subtle borders
-    ACCENT_MAIN = "#00F0FF"     # Neon Cyan
-    ACCENT_SEC  = "#00FF9D"     # Neon Green
-    TEXT_MAIN   = "#FFFFFF"
-    TEXT_DIM    = "#666666"
+    # Colors (Cursor-inspired dark theme)
+    BACKGROUND  = "#050816"      # Deep space
+    SURFACE     = "#0B1020"      # Main surface
+    SURFACE_ALT = "#050A18"      # Slightly darker
+    BORDER      = "#1E293B"      # Subtle borders
+    ACCENT_MAIN = "#22C55E"      # Green (run / ready)
+    ACCENT_SEC  = "#38BDF8"      # Cyan (links / focus)
+    TEXT_MAIN   = "#E5E7EB"
+    TEXT_DIM    = "#6B7280"
     
     # Styles
     params_glass_container = {
         "border": ft.Border.all(1, BORDER),
-        "border_radius": 4, 
-        "bgcolor": "#800A0A0A", # 50% Opacity Surface
-        "padding": 15,
+        "border_radius": 8,
+        "bgcolor": "#E6050A18",  # Slight translucency over background
+        "padding": 16,
     }
 
 class AriaDesktopApp:
@@ -45,6 +46,9 @@ class AriaDesktopApp:
         
         # State
         self.current_frame_bytes = None
+        self.run_counter = 0
+        self.current_run_body = None
+        self.selected_model = "flash"  # "flash" or "pro"
 
         # LEFT PANEL: Cortex Log (Thinking)
         self.cortex_log = ft.ListView(
@@ -68,14 +72,14 @@ class AriaDesktopApp:
 
     def main(self, page: ft.Page):
         self.page = page
-        page.title = "A.R.I.A. Platform // ENG_CONSOLE"
+        page.title = "A.R.I.A. Platform // Desktop Agent"
         page.theme_mode = ft.ThemeMode.DARK
         page.bgcolor = AriaTheme.BACKGROUND
         page.padding = 0 
         page.fonts = {"Mono": "JetBrains Mono, Consolas, monospace"}
         page.theme = ft.Theme(font_family="Mono")
 
-        # --- Sidebar ---
+        # --- LEFT SIDEBAR (Cursor-like rail) ---
         sidebar = ft.Container(
             width=60,
             bgcolor=AriaTheme.SURFACE,
@@ -85,8 +89,8 @@ class AriaDesktopApp:
                 controls=[
                     ft.Icon(ft.Icons.MEMORY, color=AriaTheme.ACCENT_MAIN, size=30),
                     ft.Container(height=20),
-                    ft.IconButton(ft.Icons.DASHBOARD, icon_color=AriaTheme.TEXT_MAIN, tooltip="Console"),
-                    ft.IconButton(ft.Icons.VISIBILITY, icon_color=AriaTheme.TEXT_DIM, tooltip="Vision"),
+                    ft.IconButton(ft.Icons.CHAT, icon_color=AriaTheme.TEXT_MAIN, tooltip="Chat"),
+                    ft.IconButton(ft.Icons.VISIBILITY, icon_color=AriaTheme.TEXT_DIM, tooltip="Vision Link"),
                     ft.Container(expand=True),
                     ft.Icon(ft.Icons.CIRCLE, color=AriaTheme.ACCENT_SEC, size=10),
                 ],
@@ -94,9 +98,8 @@ class AriaDesktopApp:
             )
         )
 
-        # --- LEFT PANEL COMPONENTS ---
-        
-        # 1. Vision Control (Top Left)
+        # --- SIDE PANEL COMPONENTS (Vision + Thought Stream stacked) ---
+        # Vision control (top)
         self.camera_dropdown = ft.Dropdown(
             expand=True,
             options=[],
@@ -113,11 +116,11 @@ class AriaDesktopApp:
 
         vision_section = ft.Container(
             **AriaTheme.params_glass_container,
-            height=200, # Fixed height for vision
+            height=180,
             content=ft.Column([
                 ft.Row([
                     ft.Icon(ft.Icons.LENS, size=12, color=AriaTheme.ACCENT_MAIN),
-                    ft.Text("VISION CONTROL CENTER", color=AriaTheme.ACCENT_MAIN, size=12, weight="bold"),
+                    ft.Text("VISION LINK", color=AriaTheme.ACCENT_MAIN, size=11, weight="bold"),
                     ft.Container(expand=True),
                     ft.Container(
                         content=ft.Text("STANDBY", size=10, color=AriaTheme.BACKGROUND, weight="bold"),
@@ -153,19 +156,19 @@ class AriaDesktopApp:
             ])
         )
 
-        # 2. Cortex Log (Bottom Left)
+        # Thought stream (bottom) – shows "thinking" like Cursor tool logs
         log_section = ft.Container(
             **AriaTheme.params_glass_container,
             expand=True,
             content=ft.Column([
                 ft.Row([
                     ft.Icon(ft.Icons.TERMINAL, size=12, color=AriaTheme.ACCENT_SEC),
-                    ft.Text("CORTEX_ACTIVITY_LOG", color=AriaTheme.ACCENT_SEC, size=12, weight="bold"),
+                    ft.Text("THOUGHT STREAM", color=AriaTheme.ACCENT_SEC, size=11, weight="bold"),
                 ]),
                 ft.Divider(color=AriaTheme.BORDER, thickness=1),
                 ft.Container(
                     content=self.cortex_log,
-                    bgcolor=AriaTheme.BACKGROUND,
+                    bgcolor=AriaTheme.SURFACE_ALT,
                     border=ft.Border.all(1, AriaTheme.BORDER),
                     border_radius=2,
                     expand=True,
@@ -173,13 +176,12 @@ class AriaDesktopApp:
             ])
         )
 
-        left_panel = ft.Container(
-            expand=2, # 40% width approx
+        side_panel = ft.Container(
+            expand=2,
             content=ft.Column([vision_section, log_section], spacing=10)
         )
 
-        # --- RIGHT PANEL COMPONENTS (Chat) ---
-        
+        # --- MAIN CHAT PANEL (Cursor-style center chat) ---
         self.input_field = ft.TextField(
             hint_text="Ask A.R.I.A...",
             border_color=AriaTheme.BORDER,
@@ -195,37 +197,76 @@ class AriaDesktopApp:
             focused_border_color=AriaTheme.ACCENT_SEC
         )
 
+        # Model selection dropdown
+        self.model_dropdown = ft.Dropdown(
+            width=150,
+            options=[
+                ft.dropdown.Option("flash", "Gemini Flash"),
+                ft.dropdown.Option("pro", "Gemini Pro"),
+            ],
+            value="flash",
+            text_size=10,
+            text_style=ft.TextStyle(font_family="Mono", color=AriaTheme.TEXT_MAIN),
+            bgcolor=AriaTheme.SURFACE_ALT,
+            border_color=AriaTheme.BORDER,
+            border_radius=999,
+            content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+        )
+        self.model_dropdown.on_change = self.handle_model_change
+
+        chat_header = ft.Row(
+            [
+                ft.Icon(ft.Icons.CHAT_BUBBLE_OUTLINE, size=16, color=AriaTheme.TEXT_MAIN),
+                ft.Text("Chat with A.R.I.A", size=13, weight="bold", color=AriaTheme.TEXT_MAIN),
+                ft.Container(expand=True),
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Icon(ft.Icons.BOLT, size=12, color=AriaTheme.ACCENT_MAIN),
+                            self.model_dropdown,
+                        ],
+                        spacing=4,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    padding=ft.Padding.only(left=8, right=8, top=4, bottom=4),
+                    border_radius=999,
+                    border=ft.Border.all(1, AriaTheme.BORDER),
+                    bgcolor=AriaTheme.SURFACE_ALT,
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.START,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+
         chat_section = ft.Container(
             **AriaTheme.params_glass_container,
-            expand=3, # 60% width
-            content=ft.Column([
-                ft.Row([
-                    ft.Icon(ft.Icons.CHAT_BUBBLE, size=12, color=AriaTheme.TEXT_MAIN),
-                    ft.Text("GEMINI_UPLINK", color=AriaTheme.TEXT_MAIN, size=12, weight="bold"),
-                ]),
-                ft.Divider(color=AriaTheme.BORDER, thickness=1),
-                
-                # Chat History Area
-                ft.Container(
-                    content=self.chat_history,
-                    expand=True,
-                ),
-                
-                # Divider
-                ft.Divider(color=AriaTheme.BORDER, thickness=1),
-
-                # Bottom Input Area
-                ft.Row([
-                    self.input_field,
-                    ft.IconButton(
-                        ft.Icons.SEND_ROUNDED, 
-                        icon_color=AriaTheme.ACCENT_SEC, 
-                        icon_size=24,
-                        on_click=lambda e: self.handle_chat_submit(e),
-                        tooltip="TRANSMIT"
-                    )
-                ], alignment=ft.MainAxisAlignment.END) 
-            ])
+            expand=3,
+            content=ft.Column(
+                [
+                    chat_header,
+                    ft.Divider(color=AriaTheme.BORDER, thickness=1),
+                    ft.Container(
+                        content=self.chat_history,
+                        expand=True,
+                        padding=ft.Padding.only(right=8),
+                    ),
+                    ft.Divider(color=AriaTheme.BORDER, thickness=1),
+                    ft.Row(
+                        [
+                            self.input_field,
+                            ft.IconButton(
+                                ft.Icons.SEND_ROUNDED,
+                                icon_color=AriaTheme.ACCENT_SEC,
+                                icon_size=22,
+                                on_click=lambda e: self.handle_chat_submit(e),
+                                tooltip="Send message",
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.END,
+                    ),
+                ],
+                spacing=8,
+            ),
         )
 
         # --- Main Layout Assembly ---
@@ -236,14 +277,28 @@ class AriaDesktopApp:
                 ft.Row([
                     ft.Text("A.R.I.A. PLATFORM", size=24, weight="bold", font_family="Mono"),
                     ft.Container(
-                        content=ft.Text("v3.0.0-SPLIT", size=10, color=AriaTheme.BACKGROUND),
-                        bgcolor=AriaTheme.TEXT_DIM,
+                        content=ft.Text("Desktop Agent", size=11, color=AriaTheme.TEXT_DIM),
+                        bgcolor=AriaTheme.SURFACE_ALT,
                         padding=ft.Padding.symmetric(horizontal=4),
                         border_radius=2
-                    )
+                    ),
+                    ft.Container(expand=True),
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.Icon(ft.Icons.CIRCLE, size=10, color=AriaTheme.ACCENT_MAIN),
+                                ft.Text("Ready", size=11, color=AriaTheme.TEXT_DIM),
+                            ],
+                            spacing=4,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        padding=ft.Padding.only(left=8, right=8, top=4, bottom=4),
+                        border_radius=999,
+                        bgcolor="#06111F",
+                    ),
                 ]),
                 ft.Container(height=10),
-                ft.Row([left_panel, chat_section], expand=True, spacing=10)
+                ft.Row([chat_section, side_panel], expand=True, spacing=10)
             ])
         )
 
@@ -253,25 +308,160 @@ class AriaDesktopApp:
         self.log_event("SYSTEM", "UI_LAYOUT_V3_LOADED")
         self.add_chat_message("A.R.I.A", "Systems online. Ready for command.")
         self.detect_cameras()
+        
+        # Log initial quota status
+        quota_status = self.coordinator.check_quota_status()
+        if quota_status["warning_level"] != "ok":
+            self.log_event("SYSTEM", quota_status["message"])
+
+    def start_new_run(self, user_text: str):
+        """
+        Creates a Trae-style grouped run in the Thought Stream.
+
+        Each user message starts a new run card with a header and a
+        collapsible body where individual THINKING events are attached.
+        """
+        self.run_counter += 1
+        timestamp = datetime.now().strftime("%H:%M:%S")
+
+        # Short preview of the user instruction
+        preview = (user_text.strip().replace("\n", " ")[:80] + "…") if len(user_text) > 80 else user_text
+
+        self.current_run_body = ft.Column(spacing=4, tight=True)
+
+        header_row = ft.Row(
+            [
+                ft.Text(
+                    f"Run #{self.run_counter}",
+                    size=11,
+                    weight="bold",
+                    font_family="Mono",
+                    color=AriaTheme.TEXT_MAIN,
+                ),
+                ft.Container(expand=True),
+                ft.Text(
+                    timestamp,
+                    size=9,
+                    font_family="Mono",
+                    color=AriaTheme.TEXT_DIM,
+                ),
+            ],
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+
+        run_tile = ft.ExpansionTile(
+            title=header_row,
+            subtitle=ft.Text(
+                preview,
+                size=10,
+                font_family="Mono",
+                color=AriaTheme.TEXT_DIM,
+                no_wrap=False,
+            ),
+            controls=[self.current_run_body],
+        )
+
+        self.cortex_log.controls.append(run_tile)
+        if self.page:
+            self.page.update()
 
     def log_event(self, source, text):
-        # Adds to Left Panel Log (Thinking)
-        color = AriaTheme.TEXT_MAIN
-        prefix = ""
-        
-        if source == "SYSTEM": 
-            color = AriaTheme.ACCENT_SEC 
-            prefix = "[SYS]"
-        elif source == "THINKING":
-            color = AriaTheme.ACCENT_MAIN
-            prefix = "[CORTEX]"
-             
+        """
+        Adds a Trae-style card to the Thought Stream on the left.
+
+        Instead of plain text lines, each event is rendered as a compact
+        log card with a phase tag, timestamp, and message – similar to
+        Trae / Cursor thought timelines.
+        """
         timestamp = datetime.now().strftime("%H:%M:%S")
-        
-        self.cortex_log.controls.append(
-            ft.Text(f"{timestamp} {prefix} {text}", size=10, font_family="Mono", color=color)
+
+        # Base styling by source
+        accent_color = AriaTheme.ACCENT_SEC
+        header_label = "SYSTEM"
+        body_color = AriaTheme.TEXT_MAIN
+
+        if source == "THINKING":
+            accent_color = AriaTheme.ACCENT_MAIN
+            header_label = "CORTEX"
+
+        # Try to detect an explicit phase tag from the text like: [PLAN], [SEARCH], etc.
+        phase_label = header_label
+        if "[" in text and "]" in text:
+            try:
+                phase_label = text[text.index("[") + 1 : text.index("]")].strip() or header_label
+            except ValueError:
+                phase_label = header_label
+
+        # Card layout: thin colored rail + content column
+        card = ft.Container(
+            bgcolor=AriaTheme.SURFACE_ALT,
+            border=ft.Border.all(1, AriaTheme.BORDER),
+            border_radius=6,
+            padding=8,
+            content=ft.Row(
+                [
+                    ft.Container(
+                        width=3,
+                        bgcolor=accent_color,
+                        border_radius=999,
+                    ),
+                    ft.Container(
+                        expand=True,
+                        padding=ft.Padding.only(left=8),
+                        content=ft.Column(
+                            [
+                                ft.Row(
+                                    [
+                                        ft.Text(
+                                            f"{timestamp}",
+                                            size=9,
+                                            font_family="Mono",
+                                            color=AriaTheme.TEXT_DIM,
+                                        ),
+                                        ft.Container(
+                                            content=ft.Text(
+                                                phase_label.upper(),
+                                                size=9,
+                                                font_family="Mono",
+                                                color=accent_color,
+                                                weight="bold",
+                                            ),
+                                            padding=ft.Padding.symmetric(
+                                                horizontal=6, vertical=2
+                                            ),
+                                            border_radius=999,
+                                            border=ft.Border.all(1, accent_color),
+                                        ),
+                                    ],
+                                    spacing=6,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                ),
+                                ft.Text(
+                                    text,
+                                    size=10,
+                                    font_family="Mono",
+                                    color=body_color,
+                                    no_wrap=False,
+                                ),
+                            ],
+                            spacing=4,
+                            tight=True,
+                        ),
+                    ),
+                ],
+                vertical_alignment=ft.CrossAxisAlignment.START,
+            ),
         )
-        self.page.update()
+
+        # THINKING logs attach inside the current run's body if present,
+        # giving you grouped, collapsible runs similar to Trae / SOLO mode.
+        if source == "THINKING" and self.current_run_body is not None:
+            self.current_run_body.controls.append(card)
+        else:
+            self.cortex_log.controls.append(card)
+
+        if self.page:
+            self.page.update()
 
     def add_chat_message(self, sender, text):
         # Adds to Right Panel Chat
@@ -373,6 +563,12 @@ class AriaDesktopApp:
         if self.page:
             self.page.update()
 
+    def handle_model_change(self, e):
+        """Handle model selection dropdown change."""
+        self.selected_model = e.control.value or "flash"
+        model_display = "Gemini Flash" if self.selected_model == "flash" else "Gemini Pro"
+        self.log_event("SYSTEM", f"MODEL_SWITCH: {model_display}")
+
     def handle_camera_change(self, e):
         val = e.control.value
         if val == "-1":
@@ -465,9 +661,12 @@ class AriaDesktopApp:
         if not user_text:
             return
             
+        # Start a new grouped run in the Thought Stream for this instruction.
+        self.start_new_run(user_text)
+
         self.add_chat_message("USER", user_text)
         self.input_field.value = ""
-        self.input_field.focus()
+        # Note: focus() is async but we're in sync context - UI will handle focus on update
         self.page.update()
         
         # Define the async task
@@ -481,15 +680,40 @@ class AriaDesktopApp:
             ai_text_control = ai_bubble_row.controls[0].content.controls[1]
             
             full_response = ""
-            
-            async for chunk in self.coordinator.process_query(
-                user_text, 
-                image_data=self.current_frame_bytes,
-                log_callback=lambda src, txt: self.log_event(src, txt)
-            ):
-                full_response += chunk
-                ai_text_control.value = full_response
-                self.page.update()
+
+            async def stream_chat():
+                nonlocal full_response
+                async for chunk in self.coordinator.process_query(
+                    user_text, 
+                    image_data=self.current_frame_bytes,
+                    log_callback=lambda src, txt: self.log_event(src, txt),
+                    preferred_model=self.selected_model
+                ):
+                    full_response += chunk
+                    ai_text_control.value = full_response
+                    self.page.update()
+                
+                # Log quota status after request completes
+                quota_status = self.coordinator.check_quota_status()
+                if quota_status["warning_level"] != "ok":
+                    self.log_event("SYSTEM", quota_status["message"])
+
+            async def stream_thoughts():
+                # Secondary narrator agent dedicated to the THOUGHT STREAM panel.
+                async for line in self.coordinator.generate_thought_stream(
+                    user_text,
+                    image_data=self.current_frame_bytes,
+                    log_callback=lambda src, txt: self.log_event(src, txt),
+                ):
+                    # Each yielded line becomes its own cortex log entry.
+                    self.log_event("THINKING", line)
+
+            # Run both agents concurrently without blocking the UI thread.
+            await asyncio.gather(stream_chat(), stream_thoughts())
+
+            # Mark run as finished by clearing the active run body; new
+            # user messages will create fresh runs.
+            self.current_run_body = None
 
         # Run in a separate thread to not block UI
         def run_async_loop():
