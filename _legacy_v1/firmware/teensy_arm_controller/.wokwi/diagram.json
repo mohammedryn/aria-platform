@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "author": "A.R.I.A",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-teensy41",
+      "id": "mcu",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-servo",
+      "id": "servo1",
+      "top": -100,
+      "left": 300,
+      "attrs": {
+        "horn": "cross"
+      }
+    }
+  ],
+  "connections": [
+    [
+      "mcu:9",
+      "servo1:PWM",
+      "green",
+      []
+    ],
+    [
+      "servo1:GND",
+      "mcu:GND",
+      "black",
+      []
+    ],
+    [
+      "servo1:V+",
+      "mcu:5V",
+      "red",
+      []
+    ]
+  ]
+}

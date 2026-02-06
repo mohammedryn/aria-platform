@@ -569,7 +569,7 @@ class AriaEditorDesktop:
             self.chat_message_list.controls.append(
                 ft.Container(
                     content=ft.Text(content, size=EditorTheme.UI_FONT_SIZE, color=EditorTheme.TEXT),
-                    alignment=ft.alignment.center_left,
+                    alignment=ft.Alignment(-1, 0),
                     bgcolor=EditorTheme.BG_PRIMARY,
                     padding=10,
                     border_radius=6,
@@ -615,7 +615,7 @@ class AriaEditorDesktop:
             self.chat_message_list.controls.append(
                 ft.Container(
                     content=ft.Column(row_controls, spacing=6),
-                    alignment=ft.alignment.center_left,
+                    alignment=ft.Alignment(-1, 0),
                     padding=10,
                 )
             )
@@ -707,7 +707,7 @@ class AriaEditorDesktop:
                 self.chat_message_list.controls.append(
                     ft.Container(
                         content=ft.Text(m["content"], size=EditorTheme.UI_FONT_SIZE, color=EditorTheme.TEXT),
-                        alignment=ft.alignment.center_left,
+                        alignment=ft.Alignment(-1, 0),
                         bgcolor=EditorTheme.BG_PRIMARY,
                         padding=10,
                         border_radius=6,

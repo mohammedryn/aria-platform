@@ -1,0 +1,236 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.AriaPanel = void 0;
+const vscode = require("vscode");
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
+const logger_1 = require("../utils/logger");
+const diffEngine_1 = require("../utils/diffEngine");
+const editorContext_1 = require("../utils/editorContext");
+const wokwiGenerator_1 = require("../simulation/wokwiGenerator");
+class AriaPanel {
+    constructor(panel, extensionUri) {
+        this._disposables = [];
+        this._panel = panel;
+        this._extensionUri = extensionUri;
+        // Set the webview's initial html content
+        this._update();
+        // Listen for when the panel is disposed
+        this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
+        // Receive messages from the webview
+        this._panel.webview.onDidReceiveMessage(message => {
+            switch (message.command) {
+                case 'executeCommand':
+                    this._handleCommand(message.text);
+                    return;
+                case 'previewDiff':
+                    this._handlePreviewDiff(message.diff);
+                    return;
+                case 'applyDiff':
+                    this._handleApplyDiff(message.diff, message.description);
+                    return;
+                case 'generateSimulation':
+                    this._handleGenerateSimulation(message.data, message.metadata);
+                    return;
+                case 'openSimulation':
+                    this._handleOpenSimulation(message.workspaceRoot);
+                    return;
+            }
+        }, null, this._disposables);
+    }
+    static createOrShow(extensionUri) {
+        const column = vscode.ViewColumn.Beside;
+        // If we already have a panel, show it.
+        if (AriaPanel.currentPanel) {
+            AriaPanel.currentPanel._panel.reveal(column);
+            return;
+        }
+        // Otherwise, create a new panel.
+        const panel = vscode.window.createWebviewPanel('ariaPanel', 'A.R.I.A. Copilot', column, {
+            // Enable javascript in the webview
+            enableScripts: true,
+            // Keep the state (chat history) alive when the tab is hidden
+            retainContextWhenHidden: true,
+            // And restrict the webview to only loading content from our extension's `media` directory.
+            localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
+        });
+        AriaPanel.currentPanel = new AriaPanel(panel, extensionUri);
+    }
+    static postMessage(message) {
+        if (AriaPanel.currentPanel) {
+            AriaPanel.currentPanel._panel.webview.postMessage(message);
+        }
+    }
+    dispose() {
+        AriaPanel.currentPanel = undefined;
+        // Clean up our resources
+        this._panel.dispose();
+        while (this._disposables.length) {
+            const x = this._disposables.pop();
+            if (x) {
+                x.dispose();
+            }
+        }
+    }
+    _update() {
+        const webview = this._panel.webview;
+        this._panel.webview.html = this._getHtmlForWebview(webview);
+    }
+    _getHtmlForWebview(webview) {
+        const htmlPath = vscode.Uri.joinPath(this._extensionUri, 'media', 'aria-panel.html');
+        let htmlContent = "";
+        try {
+            htmlContent = fs.readFileSync(htmlPath.fsPath, 'utf8');
+        }
+        catch (e) {
+            logger_1.Logger.log(`Error loading HTML: ${e}`);
+            htmlContent = `<h1>Error loading panel</h1>`;
+        }
+        return htmlContent;
+    }
+    async _handlePreviewDiff(diff) {
+        const editor = (0, editorContext_1.getLastActiveEditor)();
+        if (!editor) {
+            vscode.window.showErrorMessage("A.R.I.A: No active editor to apply preview.");
+            return;
+        }
+        const originalText = editor.document.getText();
+        const patchedText = diffEngine_1.DiffEngine.applyPatch(originalText, diff);
+        if (patchedText === null) {
+            vscode.window.showErrorMessage("A.R.I.A: Failed to generate diff preview. The file may have changed.");
+            return;
+        }
+        // Create Temp Files
+        const tmpDir = os.tmpdir();
+        const originalFile = path.join(tmpDir, `aria_original_${Date.now()}.cpp`); // simplified extension assumption
+        const modifiedFile = path.join(tmpDir, `aria_modified_${Date.now()}.cpp`);
+        try {
+            fs.writeFileSync(originalFile, originalText);
+            fs.writeFileSync(modifiedFile, patchedText);
+            const originalUri = vscode.Uri.file(originalFile);
+            const modifiedUri = vscode.Uri.file(modifiedFile);
+            await vscode.commands.executeCommand("vscode.diff", originalUri, modifiedUri, "A.R.I.A Suggestion Preview");
+        }
+        catch (e) {
+            logger_1.Logger.log(`[AriaPanel] Preview error: ${e}`);
+        }
+    }
+    async _handleApplyDiff(diff, description) {
+        const editor = (0, editorContext_1.getLastActiveEditor)();
+        if (!editor) {
+            vscode.window.showErrorMessage("A.R.I.A: No active editor to apply changes.");
+            return;
+        }
+        const originalText = editor.document.getText();
+        const patchedText = diffEngine_1.DiffEngine.applyPatch(originalText, diff);
+        if (patchedText === null) {
+            vscode.window.showErrorMessage("A.R.I.A: Failed to apply patch. The file may have changed.");
+            return;
+        }
+        // Apply via WorkspaceEdit (Replacing full text is safer given our simple patcher)
+        // A full patcher would yield TextEdits, but since we already rebuilt the string,
+        // we can just replace the whole range.
+        const fullRange = new vscode.Range(editor.document.positionAt(0), editor.document.positionAt(originalText.length));
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(editor.document.uri, fullRange, patchedText);
+        const success = await vscode.workspace.applyEdit(edit);
+        if (success) {
+            await editor.document.save();
+            logger_1.Logger.log(`[A.R.I.A] Applied suggestion: ${description}`);
+            vscode.window.showInformationMessage(`A.R.I.A: Applied fix - ${description}`);
+        }
+        else {
+            vscode.window.showErrorMessage("A.R.I.A: Failed to apply edits.");
+        }
+    }
+    _handleGenerateSimulation(validationResult, metadata) {
+        try {
+            const json = wokwiGenerator_1.WokwiGenerator.generate(metadata.workspaceRoot, metadata.board, validationResult);
+            // Pass metadata.board as the 3rd argument (boardId)
+            wokwiGenerator_1.WokwiGenerator.createProjectFiles(metadata.workspaceRoot, json, metadata.board);
+            vscode.window.showInformationMessage("A.R.I.A: Simulation files generated in .wokwi/ and wokwi.toml");
+            this._panel.webview.postMessage({ type: 'simulationReady', workspaceRoot: metadata.workspaceRoot });
+        }
+        catch (e) {
+            logger_1.Logger.log(`[A.R.I.A] Simulation generation failed: ${e}`);
+            vscode.window.showErrorMessage(`A.R.I.A: Failed to generate simulation: ${e}`);
+        }
+    }
+    async _handleOpenSimulation(workspaceRoot) {
+        const diagramPath = path.join(workspaceRoot, '.wokwi', 'diagram.json');
+        const uri = vscode.Uri.file(diagramPath);
+        try {
+            // Check if file exists
+            if (!fs.existsSync(diagramPath)) {
+                vscode.window.showErrorMessage("A.R.I.A: diagram.json not found.");
+                return;
+            }
+            // Open the file so it is the active editor
+            const doc = await vscode.workspace.openTextDocument(uri);
+            await vscode.window.showTextDocument(doc, { preview: false });
+            // Check for Wokwi extension
+            const wokwiExt = vscode.extensions.getExtension('Wokwi.wokwi-vscode');
+            if (!wokwiExt) {
+                const install = "Install Wokwi Extension";
+                const choice = await vscode.window.showInformationMessage("To run this simulation, you need the Wokwi extension.", install);
+                if (choice === install) {
+                    vscode.env.openExternal(vscode.Uri.parse('vscode:extension/Wokwi.wokwi-vscode'));
+                }
+            }
+            else {
+                // Wait a moment for the editor to settle and extension to activate
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                // Directly start the simulation
+                try {
+                    await vscode.commands.executeCommand('wokwi.start');
+                }
+                catch (err) {
+                    logger_1.Logger.log(`[A.R.I.A] Failed to trigger wokwi.start: ${err}`);
+                    vscode.window.showWarningMessage(`A.R.I.A: Opened diagram, but could not auto-start simulation. Click 'Start Simulation' in the editor.`);
+                }
+            }
+        }
+        catch (e) {
+            vscode.window.showErrorMessage(`A.R.I.A: Error opening simulation: ${e}`);
+        }
+    }
+    _handleCommand(text) {
+        logger_1.Logger.log(`User command: ${text}`);
+        let response = "";
+        if (text.startsWith('/')) {
+            const cmd = text.split(' ')[0].toLowerCase();
+            switch (cmd) {
+                case '/help':
+                    response = "<b>Available Commands:</b><br><code>/analyze</code> - Analyze current file<br><code>/selection</code> - Analyze selected code<br><code>/workspace</code> - Analyze entire workspace<br><code>/validate</code> - Validate Hardware & Simulate";
+                    this._panel.webview.postMessage({ type: 'addResult', text: response });
+                    break;
+                case '/analyze':
+                    vscode.commands.executeCommand('aria.analyzeFile');
+                    break;
+                case '/selection':
+                    vscode.commands.executeCommand('aria.analyzeSelection');
+                    break;
+                case '/workspace':
+                    vscode.commands.executeCommand('aria.analyzeWorkspace');
+                    break;
+                case '/validate':
+                    vscode.commands.executeCommand('aria.validateHardware');
+                    break;
+                case '/vision':
+                    response = "⚠️ Vision Module not yet initialized. Please connect hardware.";
+                    this._panel.webview.postMessage({ type: 'addResult', text: response });
+                    break;
+                default:
+                    response = `Unknown command: ${cmd}`;
+                    this._panel.webview.postMessage({ type: 'addResult', text: response });
+            }
+        }
+        else {
+            response = `A.R.I.A. is a command-based system. Type <code>/help</code> for options.`;
+            this._panel.webview.postMessage({ type: 'addResult', text: response });
+        }
+    }
+}
+exports.AriaPanel = AriaPanel;
+//# sourceMappingURL=ariaPanel.js.map

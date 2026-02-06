@@ -1,0 +1,95 @@
+{
+  "name": "aria-vscode",
+  "displayName": "A.R.I.A. – Hardware-Aware IDE Copilot",
+  "description": "Hardware-Aware IDE Copilot for Professional Engineering",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "aria.openPanel",
+        "title": "A.R.I.A: Open Copilot Panel"
+      },
+      {
+        "command": "aria.analyzeSelection",
+        "title": "A.R.I.A: Analyze Selection"
+      },
+      {
+        "command": "aria.analyzeFile",
+        "title": "A.R.I.A: Analyze File"
+      },
+      {
+        "command": "aria.analyzeWorkspace",
+        "title": "A.R.I.A: Analyze Workspace"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "aria.openPanel"
+        },
+        {
+          "command": "aria.analyzeSelection",
+          "when": "editorHasSelection"
+        },
+        {
+          "command": "aria.analyzeFile"
+        },
+        {
+          "command": "aria.analyzeWorkspace"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "aria.analyzeSelection",
+          "when": "editorHasSelection",
+          "group": "aria-group@1"
+        },
+        {
+          "command": "aria.analyzeFile",
+          "group": "aria-group@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "A.R.I.A.",
+      "properties": {
+        "aria.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Google Gemini API Key for A.R.I.A. AI features. Leave empty to use Dry Run mode."
+        },
+        "aria.apiModel": {
+          "type": "string",
+          "default": "gemini-2.5-flash",
+          "description": "Gemini Model ID (e.g., gemini-2.0-flash, gemini-1.5-flash). A.R.I.A will automatically try fallbacks if this fails."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "18.x",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3"
+  }
+}

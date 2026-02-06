@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A.R.I.A. Copilot</title>
+    <style>
+        :root {
+            --container-paddding: 20px;
+            --input-height: 40px;
+        }
+        body {
+            font-family: var(--vscode-font-family);
+            color: var(--vscode-foreground);
+            background-color: var(--vscode-editor-background);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        /* Header */
+        header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+            flex-shrink: 0;
+        }
+        h1 {
+            font-size: 1.1em;
+            margin: 0;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        h2 {
+            font-size: 0.85em;
+            color: var(--vscode-descriptionForeground);
+            margin: 5px 0 0 0;
+            font-weight: normal;
+        }
+
+        /* Result Stream (The "Output") */
+        #result-stream {
+            flex-grow: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .entry {
+            margin-bottom: 10px;
+        }
+        .entry-command {
+            font-family: var(--vscode-editor-font-family);
+            font-size: 0.9em;
+            color: var(--vscode-textPreformat-foreground);
+            background: var(--vscode-textBlockQuote-background);
+            padding: 8px 12px;
+            border-radius: 4px;
+            align-self: flex-start;
+            display: inline-block;
+            margin-bottom: 8px;
+            border-left: 3px solid var(--vscode-textLink-activeForeground);
+        }
+        .entry-result {
+            font-size: 0.95em;
+            line-height: 1.5;
+        }
+
+        /* Analysis Cards */
+        .analysis-card {
+            border-left: 3px solid var(--vscode-notebook-cellBorderColor);
+            padding-left: 10px;
+        }
+        .analysis-card h3 {
+            margin-top: 0;
+        }
+        .analysis-section {
+            margin-top: 10px;
+        }
+        .analysis-meta {
+            font-size: 0.8em;
+            opacity: 0.8;
+            margin-top: 10px;
+        }
+
+        /* Suggestions */
+        .suggestion-item {
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 4px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        .suggestion-header {
+            padding: 8px 12px;
+            background: var(--vscode-sideBar-background);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .suggestion-header:hover {
+            background: var(--vscode-list-hoverBackground);
+        }
+        .suggestion-body {
+            padding: 10px;
+            display: none; /* Hidden by default */
+            border-top: 1px solid var(--vscode-panel-border);
+        }
+        .suggestion-body.open {
+            display: block;
+        }
+        .suggestion-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        button {
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border: none;
+            padding: 6px 12px;
+            border-radius: 2px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        button:hover {
+            background: var(--vscode-button-hoverBackground);
+        }
+        button.secondary {
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+        }
+        button.secondary:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+        }
+        
+        /* Input Area */
+        #command-bar {
+            padding: 15px 20px;
+            border-top: 1px solid var(--vscode-panel-border);
+            background: var(--vscode-editor-background);
+            flex-shrink: 0;
+        }
+        
+        .input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            font-family: var(--vscode-editor-font-family);
+            font-size: 0.9em;
+            outline: none;
+        }
+        
+        input[type="text"]:focus {
+            border-color: var(--vscode-focusBorder);
+        }
+        
+        input[type="text"]::placeholder {
+            color: var(--vscode-input-placeholderForeground);
+        }
+
+        /* Status Indicator */
+        .status-dot {
+            height: 8px;
+            width: 8px;
+            background-color: var(--vscode-testing-iconPassed);
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+
+        /* Autocomplete */
+        #autocomplete-list {
+            position: absolute;
+            bottom: 100%; /* Position above the input */
+            left: 0;
+            right: 0;
+            background-color: var(--vscode-menu-background);
+            color: var(--vscode-menu-foreground);
+            border: 1px solid var(--vscode-menu-border);
+            border-radius: 4px;
+            max-height: 150px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+            box-shadow: 0 -4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .autocomplete-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--vscode-menu-separatorBackground);
+        }
+
+        .autocomplete-item:last-child {
+            border-bottom: none;
+        }
+
+        .autocomplete-item:hover, .autocomplete-item.active {
+            background-color: var(--vscode-menu-selectionBackground);
+            color: var(--vscode-menu-selectionForeground);
+        }
+
+    </style>
+</head>
+<body>
+    <header>
+        <h1><span class="status-dot"></span>A.R.I.A. Copilot</h1>
+        <h2>Hardware-Aware IDE Copilot</h2>
+    </header>
+
+    <div id="result-stream">
+        <!-- Initial State -->
+        <div class="entry">
+            <div class="entry-result">
+                Ready for commands. Type <code>/help</code> for options.
+            </div>
+        </div>
+    </div>
+
+    <div id="command-bar">
+        <div class="input-wrapper">
+            <div id="autocomplete-list"></div>
+            <input type="text" id="command-input" placeholder="Enter command (e.g., /analyze, /vision)..." autocomplete="off" />
+        </div>
+    </div>
+
+    <script>
+        const vscode = acquireVsCodeApi();
+        const input = document.getElementById('command-input');
+        const stream = document.getElementById('result-stream');
+        const autocompleteList = document.getElementById('autocomplete-list');
+
+        const AVAILABLE_COMMANDS = [
+            '/analyze',
+            '/selection',
+            '/workspace',
+            '/validate',
+            '/vision',
+            '/help'
+        ];
+
+        let currentFocus = -1;
+
+        // Focus input on load
+        input.focus();
+
+        // Input Event for Autocomplete
+        input.addEventListener('input', function(e) {
+            const val = this.value;
+            closeAllLists();
+            if (!val || !val.startsWith('/')) { return false; }
+            
+            currentFocus = -1;
+            
+            // Filter commands
+            const matches = AVAILABLE_COMMANDS.filter(cmd => cmd.toLowerCase().startsWith(val.toLowerCase()));
+            
+            if (matches.length > 0) {
+                autocompleteList.style.display = 'block';
+                matches.forEach(cmd => {
+                    const item = document.createElement('div');
+                    item.className = 'autocomplete-item';
+                    // Highlight match
+                    item.innerHTML = `<strong>${cmd.substr(0, val.length)}</strong>${cmd.substr(val.length)}`;
+                    item.innerHTML += `<input type='hidden' value='${cmd}'>`;
+                    
+                    item.addEventListener('click', function(e) {
+                        input.value = this.getElementsByTagName('input')[0].value;
+                        closeAllLists();
+                        input.focus();
+                    });
+                    
+                    autocompleteList.appendChild(item);
+                });
+            }
+        });
+
+        // Handle Keys (Enter, Up, Down)
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault(); // Prevent submitting form if we select from list
+                
+                if (currentFocus > -1) {
+                    if (autocompleteList.style.display !== 'none') {
+                        const items = autocompleteList.getElementsByTagName('div');
+                        if (items[currentFocus]) {
+                            items[currentFocus].click();
+                            return; // Don't send command yet, just select
+                        }
+                    }
+                }
+                
+                const text = input.value.trim();
+                if (text) {
+                    closeAllLists();
+                    sendCommand(text);
+                    input.value = '';
+                }
+            } else if (e.key === 'ArrowDown') {
+                currentFocus++;
+                addActive(autocompleteList.getElementsByTagName('div'));
+            } else if (e.key === 'ArrowUp') {
+                currentFocus--;
+                addActive(autocompleteList.getElementsByTagName('div'));
+            } else if (e.key === 'Escape') {
+                closeAllLists();
+            }
+        });
+
+        function addActive(x) {
+            if (!x) return false;
+            removeActive(x);
+            if (currentFocus >= x.length) currentFocus = 0;
+            if (currentFocus < 0) currentFocus = (x.length - 1);
+            x[currentFocus].classList.add("active");
+            // Scroll to view
+            x[currentFocus].scrollIntoView({ block: 'nearest' });
+        }
+
+        function removeActive(x) {
+            for (let i = 0; i < x.length; i++) {
+                x[i].classList.remove("active");
+            }
+        }
+
+        function closeAllLists(elmnt) {
+            autocompleteList.innerHTML = '';
+            autocompleteList.style.display = 'none';
+        }
+
+        // Close list when clicking elsewhere
+        document.addEventListener("click", function (e) {
+            if (e.target !== input && e.target !== autocompleteList) {
+                closeAllLists();
+            }
+        });
+
+        // Send to Extension
+        function sendCommand(text) {
+            // Optimistically show command
+            addEntry(text, 'command');
+            
+            // Send to backend
+            vscode.postMessage({
+                command: 'executeCommand',
+                text: text
+            });
+        }
+
+        // Handle messages from Extension
+        window.addEventListener('message', event => {
+            const message = event.data;
+            switch (message.type) {
+                case 'addResult':
+                    addEntry(message.text, 'result');
+                    break;
+                case 'showAnalysis':
+                    renderAnalysis(message.data, message.metadata);
+                    break;
+                case 'showHardwareValidation':
+                    renderHardwareValidation(message.data, message.metadata);
+                    break;
+            }
+        });
+
+        function addEntry(text, type) {
+            const div = document.createElement('div');
+            div.className = 'entry';
+            
+            if (type === 'command') {
+                const cmdDiv = document.createElement('div');
+                cmdDiv.className = 'entry-command';
+                cmdDiv.textContent = text;
+                div.appendChild(cmdDiv);
+            } else {
+                const resDiv = document.createElement('div');
+                resDiv.className = 'entry-result';
+                resDiv.innerHTML = text; // Allow simple HTML
+                div.appendChild(resDiv);
+            }
+            
+            stream.appendChild(div);
+            stream.scrollTop = stream.scrollHeight;
+        }
+
+        function renderAnalysis(analysis, metadata) {
+            const container = document.createElement('div');
+            container.className = 'entry';
+            
+            const card = document.createElement('div');
+            card.className = 'entry-result analysis-card';
+            
+            // Header
+            card.innerHTML = `
+                <h3>${metadata.source === 'selection' ? '🔎 Selection' : '📄 File'}: ${metadata.filePath}</h3>
+                <p>${analysis.summary}</p>
+                
+                <div class="analysis-section">
+                    <strong>⚠️ Issues (${analysis.detectedIssues.length})</strong>
+                    <ul>${analysis.detectedIssues.map(i => `<li>${i}</li>`).join('')}</ul>
+                </div>
+                
+                <div class="analysis-section">
+                    <strong>💡 Recommendations</strong>
+                    <ul>${analysis.recommendations.map(r => `<li>${r}</li>`).join('')}</ul>
+                </div>
+            `;
+
+            // Suggestions
+            if (analysis.suggestions && analysis.suggestions.length > 0) {
+                const suggestionsTitle = document.createElement('div');
+                suggestionsTitle.className = 'analysis-section';
+                suggestionsTitle.innerHTML = `<strong>✨ Code Suggestions (${analysis.suggestions.length})</strong>`;
+                card.appendChild(suggestionsTitle);
+
+                analysis.suggestions.forEach((suggestion, index) => {
+                    const sItem = document.createElement('div');
+                    sItem.className = 'suggestion-item';
+                    
+                    const sHeader = document.createElement('div');
+                    sHeader.className = 'suggestion-header';
+                    sHeader.innerHTML = `<span>${suggestion.description}</span> <span>▼</span>`;
+                    sHeader.onclick = () => {
+                        const body = sItem.querySelector('.suggestion-body');
+                        body.classList.toggle('open');
+                        sHeader.querySelector('span:last-child').textContent = body.classList.contains('open') ? '▲' : '▼';
+                    };
+
+                    const sBody = document.createElement('div');
+                    sBody.className = 'suggestion-body';
+                    
+                    const actions = document.createElement('div');
+                    actions.className = 'suggestion-actions';
+                    
+                    const btnPreview = document.createElement('button');
+                    btnPreview.textContent = 'Preview Diff';
+                    btnPreview.onclick = () => {
+                        vscode.postMessage({
+                            command: 'previewDiff',
+                            diff: suggestion.diff
+                        });
+                    };
+
+                    const btnApply = document.createElement('button');
+                    btnApply.textContent = 'Apply Fix';
+                    btnApply.onclick = () => {
+                        vscode.postMessage({
+                            command: 'applyDiff',
+                            diff: suggestion.diff,
+                            description: suggestion.description
+                        });
+                    };
+
+                    const btnReject = document.createElement('button');
+                    btnReject.textContent = 'Reject';
+                    btnReject.className = 'secondary';
+                    btnReject.onclick = () => {
+                        // Remove suggestion from UI or mark as rejected
+                        sItem.style.opacity = '0.5';
+                        sItem.style.pointerEvents = 'none';
+                        // Optional: Log rejection
+                    };
+
+                    actions.appendChild(btnPreview);
+                    actions.appendChild(btnApply);
+                    actions.appendChild(btnReject);
+                    
+                    sBody.appendChild(actions);
+                    sItem.appendChild(sHeader);
+                    sItem.appendChild(sBody);
+                    card.appendChild(sItem);
+                });
+            }
+
+            // Footer
+            const footer = document.createElement('div');
+            footer.className = 'analysis-meta';
+            footer.innerHTML = `Confidence: ${(analysis.confidence * 100).toFixed(0)}% | Hardware: ${metadata.hardware || "None"}`;
+            card.appendChild(footer);
+
+            container.appendChild(card);
+            stream.appendChild(container);
+            stream.scrollTop = stream.scrollHeight;
+        }
+
+        function renderHardwareValidation(result, metadata) {
+            const container = document.createElement('div');
+            container.className = 'entry';
+            
+            const card = document.createElement('div');
+            card.className = 'entry-result analysis-card';
+            
+            // Header
+            card.innerHTML = `
+                <h3>🛠️ Hardware Validation</h3>
+                <p><strong>Board:</strong> ${metadata.board}</p>
+                <div style="margin-bottom: 10px;">
+                    <span style="font-weight: bold; color: ${result.status === 'pass' ? 'var(--vscode-testing-iconPassed)' : result.status === 'fail' ? 'var(--vscode-testing-iconFailed)' : 'var(--vscode-charts-yellow)'}; text-transform: uppercase;">
+                        Status: ${result.status}
+                    </span>
+                </div>
+                
+                <div class="analysis-section">
+                    <strong>⚠️ Issues (${result.issues.length})</strong>
+                    <ul>${result.issues.length > 0 ? result.issues.map(i => `<li>${i}</li>`).join('') : '<li>None detected.</li>'}</ul>
+                </div>
+
+                 <div class="analysis-section">
+                    <strong>🔌 Peripherals Detected</strong>
+                    <ul>${result.peripherals.length > 0 ? result.peripherals.map(p => `<li>${p}</li>`).join('') : '<li>None detected.</li>'}</ul>
+                </div>
+                
+                <div class="analysis-section" style="margin-top: 15px;">
+                    <button id="btn-generate-sim" onclick="generateSimulation()">Generate Wokwi Simulation</button>
+                    <button id="btn-open-sim" class="secondary" style="display:none;" onclick="openSimulation()">Open Simulation</button>
+                </div>
+            `;
+            
+            // Store data for callbacks
+            card.dataset.result = JSON.stringify(result);
+            card.dataset.metadata = JSON.stringify(metadata);
+
+            container.appendChild(card);
+            stream.appendChild(container);
+            stream.scrollTop = stream.scrollHeight;
+            
+            // Bind data to window for the button functions to access last result (simple hack)
+            window.lastValidationResult = result;
+            window.lastValidationMetadata = metadata;
+        }
+
+        function generateSimulation() {
+            if (!window.lastValidationResult) return;
+            
+            vscode.postMessage({
+                command: 'generateSimulation',
+                data: window.lastValidationResult,
+                metadata: window.lastValidationMetadata
+            });
+            
+            // Update UI
+            const btnGen = document.getElementById('btn-generate-sim');
+            if (btnGen) {
+                btnGen.textContent = "Simulation Generated!";
+                btnGen.disabled = true;
+            }
+            
+            const btnOpen = document.getElementById('btn-open-sim');
+            if (btnOpen) {
+                btnOpen.style.display = 'inline-block';
+            }
+        }
+
+        function openSimulation() {
+             if (!window.lastValidationMetadata) return;
+             
+             vscode.postMessage({
+                command: 'openSimulation',
+                workspaceRoot: window.lastValidationMetadata.workspaceRoot
+            });
+        }
+    </script>
+</body>
+</html>
