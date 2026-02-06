@@ -4,7 +4,9 @@ Two-column: editor workspace (left) | collapsible contextual sidebar (right).
 Command-oriented input; AI output as inline assistance in sidebar, not chat.
 """
 import warnings
+# Suppress deprecation warning for google.generativeai until migration to google-genai
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*generativeai.*")
+warnings.filterwarnings("ignore", category=FutureWarning, message=".*google.generativeai.*")
 
 import flet as ft
 import cv2
@@ -25,6 +27,7 @@ from src.core.coordinator import GeminiCoordinator
 class IDETheme:
     BACKGROUND   = "#1e1e1e"   # Primary background
     SURFACE      = "#252526"   # Secondary background / panels
+    SURFACE_ALT  = "#2d2d2d"   # Tertiary background for chat/diffs
     SIDEBAR      = "#333333"   # Sidebar
     BORDER       = "#2b2b2b"   # Subtle borders
     ACCENT       = "#007ACC"   # Blue
@@ -104,7 +107,7 @@ class AriaIDEDesktop:
                 [
                     icon_btn(ft.Icons.FOLDER_OPEN, "Explorer", "files"),
                     icon_btn(ft.Icons.SEARCH, "Search", "search"),
-                    icon_btn(ft.Icons.SOURCE_JOINT, "Source Control", "git"),
+                    icon_btn(ft.Icons.ACCOUNT_TREE, "Source Control", "git"),
                     icon_btn(ft.Icons.EXTENSION, "Extensions", "extensions"),
                     ft.Container(expand=True),
                     icon_btn(ft.Icons.SETTINGS, "Settings", "settings"),
@@ -226,7 +229,7 @@ class AriaIDEDesktop:
 
         editor_main = ft.Row(
             [
-                ft.Container(content=self.line_numbers, width=40, padding=ft.Padding(top=10, right=5), allow_selection=False),
+                ft.Container(content=self.line_numbers, width=40, padding=ft.Padding(top=10, right=5)),
                 ft.Container(content=self.editor_control, expand=True)
             ],
             expand=True,
@@ -329,15 +332,16 @@ class AriaIDEDesktop:
         )
 
     def model_dropdown_small(self):
-        return ft.Dropdown(
+        dd = ft.Dropdown(
             width=100,
             options=[ft.dropdown.Option("flash", "Flash 2.0"), ft.dropdown.Option("pro", "Pro 1.5")],
             value="flash",
             text_size=11,
             border_width=0,
             dense=True,
-            on_change=lambda e: setattr(self, "selected_model", e.control.value)
         )
+        dd.on_change = lambda e: setattr(self, "selected_model", e.control.value)
+        return dd
 
     def _toggle_right_panel(self, visible):
         self.right_sidebar_visible = visible
