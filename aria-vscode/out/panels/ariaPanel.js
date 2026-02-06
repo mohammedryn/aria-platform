@@ -9,9 +9,15 @@ const logger_1 = require("../utils/logger");
 const diffEngine_1 = require("../utils/diffEngine");
 const editorContext_1 = require("../utils/editorContext");
 const wokwiGenerator_1 = require("../simulation/wokwiGenerator");
+const visionClient_1 = require("../vision/visionClient");
+const hardwareContext_1 = require("../context/hardwareContext");
 class AriaPanel {
+    get visionResult() {
+        return this._currentVisionResult;
+    }
     constructor(panel, extensionUri) {
         this._disposables = [];
+        this._currentVisionResult = null;
         this._panel = panel;
         this._extensionUri = extensionUri;
         // Set the webview's initial html content
@@ -35,6 +41,23 @@ class AriaPanel {
                     return;
                 case 'openSimulation':
                     this._handleOpenSimulation(message.workspaceRoot);
+                    return;
+                case 'analyzeImage':
+                    this.analyzeImage(message.base64);
+                    return;
+                case 'triggerCapture':
+                    if (message.url) {
+                        try {
+                            fetch(message.url + '/trigger', { method: 'POST' }).catch(e => logger_1.Logger.log(`[AriaPanel] Trigger catch: ${e}`));
+                        }
+                        catch (err) {
+                            logger_1.Logger.log(`[AriaPanel] Trigger failed: ${err}`);
+                        }
+                    }
+                    return;
+                case 'discardVision':
+                    this._currentVisionResult = null;
+                    logger_1.Logger.log("[A.R.I.A] Vision context discarded by user.");
                     return;
             }
         }, null, this._disposables);
@@ -217,9 +240,8 @@ class AriaPanel {
                 case '/validate':
                     vscode.commands.executeCommand('aria.validateHardware');
                     break;
-                case '/vision':
-                    response = "⚠️ Vision Module not yet initialized. Please connect hardware.";
-                    this._panel.webview.postMessage({ type: 'addResult', text: response });
+                case '/capture':
+                    vscode.commands.executeCommand('aria.captureImage');
                     break;
                 default:
                     response = `Unknown command: ${cmd}`;
@@ -229,6 +251,46 @@ class AriaPanel {
         else {
             response = `A.R.I.A. is a command-based system. Type <code>/help</code> for options.`;
             this._panel.webview.postMessage({ type: 'addResult', text: response });
+        }
+    }
+    async analyzeImage(base64Image) {
+        try {
+            vscode.window.showInformationMessage("A.R.I.A: Analyzing hardware image...");
+            logger_1.Logger.log("[A.R.I.A] Starting vision analysis...");
+            const result = await visionClient_1.VisionClient.analyze(base64Image);
+            this._currentVisionResult = result;
+            // Context Comparison
+            const editor = (0, editorContext_1.getLastActiveEditor)();
+            let mismatchWarning;
+            if (editor) {
+                const workspaceRoot = vscode.workspace.getWorkspaceFolder(editor.document.uri)?.uri.fsPath;
+                if (workspaceRoot) {
+                    const pioContext = await hardwareContext_1.HardwareContext.getPlatformIOContext(workspaceRoot);
+                    if (pioContext && pioContext.board) {
+                        const pioBoard = pioContext.board.toLowerCase().replace(/_/g, ' ');
+                        const visionBoards = result.detectedBoards.map(b => b.toLowerCase());
+                        // Simple fuzzy check: Does any vision board string contain parts of pio board or vice versa?
+                        // e.g. "teensy41" vs "teensy 4.1"
+                        const match = visionBoards.some(vb => vb.includes(pioBoard) || pioBoard.includes(vb) ||
+                            (vb.includes('arduino') && pioBoard.includes('uno')) // common alias
+                        );
+                        if (visionBoards.length > 0 && !match) {
+                            mismatchWarning = `Vision sees "${result.detectedBoards.join(', ')}" but PlatformIO configures "${pioContext.board}".`;
+                            logger_1.Logger.log(`[A.R.I.A] Vision Mismatch: ${mismatchWarning}`);
+                        }
+                    }
+                }
+            }
+            logger_1.Logger.log(`[A.R.I.A] Vision confidence: ${result.confidence}`);
+            logger_1.Logger.log(`[A.R.I.A] Vision used as advisory context only`);
+            this._panel.webview.postMessage({
+                type: 'visionResult',
+                data: { ...result, mismatchWarning }
+            });
+        }
+        catch (e) {
+            logger_1.Logger.log(`[A.R.I.A] Vision handling error: ${e}`);
+            vscode.window.showErrorMessage(`A.R.I.A: Vision analysis failed: ${e}`);
         }
     }
 }

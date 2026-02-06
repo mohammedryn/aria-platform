@@ -17,6 +17,16 @@ export interface PlatformIOProject {
 
 export class HardwareContext {
     
+    public static async getPlatformIOContext(workspaceRoot: string): Promise<PlatformIOProject | null> {
+        const info = await this.scan();
+        // Return the first project that matches or is contained in the workspace root, or just the first one found
+        // Since scan() already handles workspace logic, we can return the first project
+        if (info.projects.length > 0) {
+            return info.projects[0];
+        }
+        return null;
+    }
+
     public static async scan(): Promise<HardwareInfo> {
         const projects: PlatformIOProject[] = [];
         

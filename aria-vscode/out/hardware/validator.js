@@ -6,7 +6,7 @@ class HardwareValidator {
      * Heuristic-based hardware validation.
      * Checks for common issues like pin conflicts, out-of-bounds usage, and missing definitions.
      */
-    static validate(code, hardwareSummary) {
+    static validate(code, hardwareSummary, visionContext) {
         const issues = [];
         const recommendations = [];
         const pinUsage = {}; // Changed to Object
@@ -77,15 +77,37 @@ class HardwareValidator {
                 }
             }
         }
-        // 5. General Recommendations
+        // 5. Vision-Enhanced Validation
+        if (visionContext) {
+            // Check for unreferenced components
+            const commonComponents = ['servo', 'stepper', 'sensor', 'display', 'led', 'button'];
+            visionContext.detectedComponents.forEach(vc => {
+                const component = vc.toLowerCase();
+                if (commonComponents.some(c => component.includes(c))) {
+                    const isUsed = peripherals.some(p => component.includes(p)) || code.toLowerCase().includes(component);
+                    if (!isUsed) {
+                        recommendations.push(`Vision Warning: Detected '${vc}' but found no explicit reference in code.`);
+                    }
+                }
+            });
+            // Check for board mismatch (Advisory)
+            if (visionContext.detectedBoards.length > 0) {
+                const visionBoard = visionContext.detectedBoards[0].toLowerCase();
+                const configBoard = hardwareSummary.toLowerCase();
+                // Simple inclusion check
+                if (!configBoard.includes(visionBoard) && !visionBoard.includes(configBoard)) {
+                    issues.push(`Board Mismatch: Vision detected '${visionContext.detectedBoards[0]}' but project is configured for '${hardwareSummary}'.`);
+                    status = (status === "pass") ? "warning" : status;
+                }
+            }
+        }
+        // 6. General Recommendations
         if (issues.length === 0) {
             recommendations.push("Hardware config looks valid.");
         }
         else {
             status = status === "pass" ? "warning" : status;
         }
-        // Logic refinement: if critical errors found, fail. If minor, warning.
-        // Duplicates are FAIL. Out of bounds are FAIL.
         return { status, issues, recommendations, pinUsage, peripherals };
     }
 }

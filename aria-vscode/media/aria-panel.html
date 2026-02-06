@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src http://127.0.0.1:*; img-src vscode-resource: https: data: http://127.0.0.1:*; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src vscode-resource: https: data: blob: mediastream: http://127.0.0.1:*;">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>A.R.I.A. Copilot</title>
     <style>
@@ -225,6 +226,34 @@
         <h2>Hardware-Aware IDE Copilot</h2>
     </header>
 
+    <!-- Visual Hardware Context Section -->
+    <div id="vision-container" style="padding: 15px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); display: none;">
+        <div style="display: flex; gap: 15px; align-items: flex-start;">
+            <div id="vision-thumb" style="width: 80px; height: 80px; background: #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                <span style="font-size: 24px;">📷</span>
+            </div>
+            <div style="flex-grow: 1;">
+                <h3 style="margin: 0 0 5px 0; font-size: 0.9em; text-transform: uppercase;">Visual Context</h3>
+                <div id="vision-details" style="font-size: 0.85em; opacity: 0.9;">
+                    No image analyzed.
+                </div>
+                <div id="vision-warnings" style="color: var(--vscode-errorForeground); font-size: 0.85em; margin-top: 5px; display: none;"></div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+                <button id="btn-use-reference" style="font-size: 0.8em; padding: 4px 8px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; cursor: pointer;">Use as Reference</button>
+                <button id="btn-discard-vision" class="secondary" style="font-size: 0.8em; padding: 4px 8px;">✕ Discard</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Camera Stream Section -->
+    <div id="camera-stream-container" style="padding: 15px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: #000; display: none; flex-direction: column; align-items: center;">
+        <img id="camera-stream-img" style="width: 100%; max-height: 300px; object-fit: contain; border: 1px solid #333;" />
+        <button id="btn-capture-stream" style="margin-top: 10px; width: 100%;">Capture Photo</button>
+        <p style="font-size: 0.8em; opacity: 0.7; margin-top: 5px;">Native Python Stream</p>
+    </div>
+
+
     <div id="result-stream">
         <!-- Initial State -->
         <div class="entry">
@@ -236,6 +265,8 @@
 
     <div id="command-bar">
         <div class="input-wrapper">
+            <button id="btn-camera" style="margin-right: 8px; background: none; border: none; cursor: pointer; color: var(--vscode-foreground);" title="Upload Hardware Image">📷</button>
+            <input type="file" id="file-input" accept="image/png, image/jpeg" style="display: none;" />
             <div id="autocomplete-list"></div>
             <input type="text" id="command-input" placeholder="Enter command (e.g., /analyze, /vision)..." autocomplete="off" />
         </div>
@@ -246,13 +277,130 @@
         const input = document.getElementById('command-input');
         const stream = document.getElementById('result-stream');
         const autocompleteList = document.getElementById('autocomplete-list');
+        const fileInput = document.getElementById('file-input');
+        const btnCamera = document.getElementById('btn-camera');
+        const visionContainer = document.getElementById('vision-container');
+        const visionDetails = document.getElementById('vision-details');
+        const visionThumb = document.getElementById('vision-thumb');
+        const visionWarnings = document.getElementById('vision-warnings');
+        const btnDiscardVision = document.getElementById('btn-discard-vision');
+        const btnUseReference = document.getElementById('btn-use-reference');
+        
+        const cameraStreamContainer = document.getElementById('camera-stream-container');
+        const cameraStreamImg = document.getElementById('camera-stream-img');
+        const btnCaptureStream = document.getElementById('btn-capture-stream');
+        let currentStreamUrl = '';
+
+        // Listen for messages from extension (openCamera)
+        window.addEventListener('message', event => {
+            const message = event.data;
+            if (message.type === 'visionResult') {
+                cameraStreamContainer.style.display = 'none';
+                updateVisionUI(message.data);
+            }
+            if (message.command === 'showStream') {
+                currentStreamUrl = message.url;
+                cameraStreamImg.src = message.url + '/stream';
+                cameraStreamContainer.style.display = 'flex';
+                // Hide vision result while streaming
+                visionContainer.style.display = 'none';
+            }
+            // ... existing handlers ...
+        });
+        
+        if (btnCaptureStream) {
+            btnCaptureStream.addEventListener('click', () => {
+                if (currentStreamUrl) {
+                    btnCaptureStream.disabled = true;
+                    btnCaptureStream.innerText = "Capturing...";
+                    vscode.postMessage({ command: 'triggerCapture', url: currentStreamUrl });
+                }
+            });
+        }
+
+
+        // Handle File Upload
+        if (btnCamera) {
+            btnCamera.addEventListener('click', () => {
+                fileInput.click();
+            });
+        }
+
+        if (fileInput) {
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const base64 = event.target.result.split(',')[1];
+                    
+                    // Show loading state
+                    visionContainer.style.display = 'block';
+                    visionDetails.innerText = "Analyzing image...";
+                    visionThumb.innerHTML = `<img src="${event.target.result}" style="width: 100%; height: 100%; object-fit: cover;">`;
+                    
+                    vscode.postMessage({
+                        command: 'analyzeImage',
+                        base64: base64
+                    });
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        if (btnDiscardVision) {
+            btnDiscardVision.addEventListener('click', () => {
+                visionContainer.style.display = 'none';
+                fileInput.value = '';
+                if (btnUseReference) {
+                    btnUseReference.textContent = "Use as Reference";
+                    btnUseReference.disabled = false;
+                    btnUseReference.style.opacity = "1";
+                }
+                vscode.postMessage({ command: 'discardVision' });
+            });
+        }
+
+        if (btnUseReference) {
+            btnUseReference.addEventListener('click', () => {
+                btnUseReference.textContent = "✓ Active";
+                btnUseReference.disabled = true;
+                btnUseReference.style.opacity = "0.7";
+                // Vision is already stored in backend, just visual confirmation
+            });
+        }
+
+        function updateVisionUI(data) {
+            visionContainer.style.display = 'block';
+            
+            // Reset button state
+            if (btnUseReference) {
+                btnUseReference.textContent = "Use as Reference";
+                btnUseReference.disabled = false;
+                btnUseReference.style.opacity = "1";
+            }
+
+            let html = `<strong>Boards:</strong> ${data.detectedBoards.join(', ') || 'None'}<br>`;
+            html += `<strong>Components:</strong> ${data.detectedComponents.join(', ') || 'None'}<br>`;
+            html += `<strong>Confidence:</strong> ${(data.confidence * 100).toFixed(0)}%`;
+            
+            visionDetails.innerHTML = html;
+
+            if (data.mismatchWarning) {
+                visionWarnings.style.display = 'block';
+                visionWarnings.innerText = `⚠️ ${data.mismatchWarning}`;
+            } else {
+                visionWarnings.style.display = 'none';
+            }
+        }
 
         const AVAILABLE_COMMANDS = [
             '/analyze',
             '/selection',
             '/workspace',
             '/validate',
-            '/vision',
+            '/capture',
             '/help'
         ];
 
@@ -376,6 +524,9 @@
                     break;
                 case 'showHardwareValidation':
                     renderHardwareValidation(message.data, message.metadata);
+                    break;
+                case 'visionResult':
+                    updateVisionUI(message.data);
                     break;
             }
         });

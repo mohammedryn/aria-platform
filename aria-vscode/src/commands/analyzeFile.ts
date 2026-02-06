@@ -41,6 +41,17 @@ export async function analyzeFile() {
         hardwareContext: hwInfo.summary
     };
 
+    // Inject Vision Context if available
+    if (AriaPanel.currentPanel && AriaPanel.currentPanel.visionResult) {
+        const v = AriaPanel.currentPanel.visionResult;
+        aiInput.visionContext = {
+            boards: v.detectedBoards,
+            components: v.detectedComponents,
+            confidence: v.confidence
+        };
+        Logger.log(`[A.R.I.A] Injected Vision Context: ${v.detectedBoards.join(', ')}`);
+    }
+
     // Call AI
     const aiResult = await GeminiClient.analyzeCode(aiInput);
 

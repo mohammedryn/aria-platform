@@ -39,6 +39,16 @@ async function analyzeSelection() {
         filePath: result.filePath || 'unknown',
         hardwareContext: hwInfo.summary
     };
+    // Inject Vision Context if available
+    if (ariaPanel_1.AriaPanel.currentPanel && ariaPanel_1.AriaPanel.currentPanel.visionResult) {
+        const v = ariaPanel_1.AriaPanel.currentPanel.visionResult;
+        aiInput.visionContext = {
+            boards: v.detectedBoards,
+            components: v.detectedComponents,
+            confidence: v.confidence
+        };
+        logger_1.Logger.log(`[A.R.I.A] Injected Vision Context: ${v.detectedBoards.join(', ')}`);
+    }
     vscode.window.setStatusBarMessage(`A.R.I.A: Analyzing with AI...`);
     // 3. Call AI (Silent)
     const aiResult = await geminiClient_1.GeminiClient.analyzeCode(aiInput);

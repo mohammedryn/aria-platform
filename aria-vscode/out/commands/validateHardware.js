@@ -24,9 +24,11 @@ async function validateHardware() {
     }
     const board = hwInfo.projects[0].board;
     // 2. Run Validator
-    const result = validator_1.HardwareValidator.validate(code, board);
+    const visionContext = ariaPanel_1.AriaPanel.currentPanel?.visionResult;
+    const result = validator_1.HardwareValidator.validate(code, board, visionContext);
     logger_1.Logger.logStructured('Hardware Validation', {
         Board: board,
+        Vision: visionContext ? "Active" : "None",
         Status: result.status,
         Issues: result.issues.length,
         Peripherals: result.peripherals.join(', ')

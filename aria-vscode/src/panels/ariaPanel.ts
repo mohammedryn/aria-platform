@@ -6,12 +6,19 @@ import { Logger } from '../utils/logger';
 import { DiffEngine } from '../utils/diffEngine';
 import { getLastActiveEditor } from '../utils/editorContext';
 import { WokwiGenerator } from '../simulation/wokwiGenerator';
+import { VisionClient, VisionResult } from '../vision/visionClient';
+import { HardwareContext } from '../context/hardwareContext';
 
 export class AriaPanel {
     public static currentPanel: AriaPanel | undefined;
     private readonly _panel: vscode.WebviewPanel;
     private readonly _extensionUri: vscode.Uri;
     private _disposables: vscode.Disposable[] = [];
+    private _currentVisionResult: VisionResult | null = null;
+
+    public get visionResult(): VisionResult | null {
+        return this._currentVisionResult;
+    }
 
     private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
         this._panel = panel;
@@ -41,6 +48,24 @@ export class AriaPanel {
                         return;
                     case 'openSimulation':
                         this._handleOpenSimulation(message.workspaceRoot);
+                        return;
+                    case 'analyzeImage':
+                        this.analyzeImage(message.base64);
+                        return;
+                    case 'triggerCapture':
+                        if (message.url) {
+                            try {
+                                fetch(message.url + '/trigger', { method: 'POST' }).catch(e => 
+                                    Logger.log(`[AriaPanel] Trigger catch: ${e}`)
+                                );
+                            } catch (err) {
+                                Logger.log(`[AriaPanel] Trigger failed: ${err}`);
+                            }
+                        }
+                        return;
+                    case 'discardVision':
+                        this._currentVisionResult = null;
+                        Logger.log("[A.R.I.A] Vision context discarded by user.");
                         return;
                 }
             },
@@ -261,9 +286,8 @@ export class AriaPanel {
                 case '/validate':
                     vscode.commands.executeCommand('aria.validateHardware');
                     break;
-                case '/vision':
-                    response = "⚠️ Vision Module not yet initialized. Please connect hardware.";
-                    this._panel.webview.postMessage({ type: 'addResult', text: response });
+                case '/capture':
+                    vscode.commands.executeCommand('aria.captureImage');
                     break;
                 default:
                     response = `Unknown command: ${cmd}`;
@@ -272,6 +296,55 @@ export class AriaPanel {
         } else {
             response = `A.R.I.A. is a command-based system. Type <code>/help</code> for options.`;
             this._panel.webview.postMessage({ type: 'addResult', text: response });
+        }
+    }
+
+    public async analyzeImage(base64Image: string) {
+        try {
+            vscode.window.showInformationMessage("A.R.I.A: Analyzing hardware image...");
+            Logger.log("[A.R.I.A] Starting vision analysis...");
+
+            const result = await VisionClient.analyze(base64Image);
+            this._currentVisionResult = result;
+
+            // Context Comparison
+            const editor = getLastActiveEditor();
+            let mismatchWarning: string | undefined;
+
+            if (editor) {
+                const workspaceRoot = vscode.workspace.getWorkspaceFolder(editor.document.uri)?.uri.fsPath;
+                if (workspaceRoot) {
+                    const pioContext = await HardwareContext.getPlatformIOContext(workspaceRoot);
+                    if (pioContext && pioContext.board) {
+                        const pioBoard = pioContext.board.toLowerCase().replace(/_/g, ' ');
+                        const visionBoards = result.detectedBoards.map(b => b.toLowerCase());
+                        
+                        // Simple fuzzy check: Does any vision board string contain parts of pio board or vice versa?
+                        // e.g. "teensy41" vs "teensy 4.1"
+                        const match = visionBoards.some(vb => 
+                            vb.includes(pioBoard) || pioBoard.includes(vb) || 
+                            (vb.includes('arduino') && pioBoard.includes('uno')) // common alias
+                        );
+
+                        if (visionBoards.length > 0 && !match) {
+                            mismatchWarning = `Vision sees "${result.detectedBoards.join(', ')}" but PlatformIO configures "${pioContext.board}".`;
+                            Logger.log(`[A.R.I.A] Vision Mismatch: ${mismatchWarning}`);
+                        }
+                    }
+                }
+            }
+
+            Logger.log(`[A.R.I.A] Vision confidence: ${result.confidence}`);
+            Logger.log(`[A.R.I.A] Vision used as advisory context only`);
+
+            this._panel.webview.postMessage({ 
+                type: 'visionResult', 
+                data: { ...result, mismatchWarning } 
+            });
+
+        } catch (e) {
+            Logger.log(`[A.R.I.A] Vision handling error: ${e}`);
+            vscode.window.showErrorMessage(`A.R.I.A: Vision analysis failed: ${e}`);
         }
     }
 }

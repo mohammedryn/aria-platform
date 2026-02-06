@@ -5,6 +5,15 @@ const vscode = require("vscode");
 const logger_1 = require("../utils/logger");
 const editorContext_1 = require("../utils/editorContext");
 class HardwareContext {
+    static async getPlatformIOContext(workspaceRoot) {
+        const info = await this.scan();
+        // Return the first project that matches or is contained in the workspace root, or just the first one found
+        // Since scan() already handles workspace logic, we can return the first project
+        if (info.projects.length > 0) {
+            return info.projects[0];
+        }
+        return null;
+    }
     static async scan() {
         const projects = [];
         // 1. Find all platformio.ini files in the workspace

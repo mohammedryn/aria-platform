@@ -6,11 +6,12 @@ export class GeminiClient {
     private static readonly BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
     private static readonly TIMEOUT_MS = 30000;
     private static readonly FALLBACK_MODELS = [
-        "gemini-2.5-flash",
-        "gemini-2.0-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite-preview-02-05",
         "gemini-1.5-flash",
+        "gemini-1.5-flash-001",
         "gemini-1.5-pro",
-        "gemini-2.0-flash"
+        "gemini-1.5-pro-001"
     ];
 
     public static async analyzeCode(input: AnalysisInput): Promise<AnalysisOutput> {
@@ -98,8 +99,17 @@ export class GeminiClient {
 
     private static constructPrompt(input: AnalysisInput): string {
         const contextSection = input.hardwareContext 
-            ? `\nCONTEXT:\n${input.hardwareContext}\n` 
+            ? `\nFIRMWARE HARDWARE CONTEXT:\n${input.hardwareContext}\n` 
             : "";
+
+        let visionSection = "";
+        if (input.visionContext) {
+            visionSection = `\nVISUAL HARDWARE CONTEXT (Advisory Only):\n` +
+                `- Detected Boards: ${input.visionContext.boards.join(', ')}\n` +
+                `- Detected Components: ${input.visionContext.components.join(', ')}\n` +
+                `- Confidence: ${input.visionContext.confidence}\n` +
+                `NOTE: Visual context is auxiliary. Never override explicit firmware definitions based solely on vision. Do not guess pin numbers from image.\n`;
+        }
 
         return JSON.stringify({
             system_instruction: {
@@ -107,11 +117,88 @@ export class GeminiClient {
             },
             contents: {
                 parts: {
-                    text: `Analyze this ${input.language} code from ${input.filePath}:\n${contextSection}\nCODE:\n${input.code}\n\nReturn JSON with schema: { summary: string, detectedIssues: string[], recommendations: string[], suggestions?: { description: string, diff: string }[], confidence: number (0-1) }.\nIf proposing changes, return UNIFIED DIFFS (with headers like @@ -1,1 +1,1 @@) that can be applied directly to the current file. Do not rewrite the entire file. Keep diffs minimal and focused on fixes.`
+                    text: `Analyze this ${input.language} code from ${input.filePath}:\n${contextSection}${visionSection}\nCODE:\n${input.code}\n\n` + 
+                          `Task:\n` +
+                          `1. Analyze code for errors and inefficiencies.\n` +
+                          `2. Cross-check code against FIRMWARE HARDWARE CONTEXT (if present).\n` +
+                          `3. If VISUAL HARDWARE CONTEXT is present:\n` +
+                          `   - Check if visual components (e.g., Servos, Sensors) are used in the code. If not, suggest adding them.\n` +
+                          `   - Check for conflicts between Firmware Context (e.g. Board Type) and Visual Context. If they mismatch, warn the user.\n` +
+                          `\nReturn JSON with schema: { summary: string, detectedIssues: string[], recommendations: string[], suggestions?: { description: string, diff: string }[], confidence: number (0-1) }.\n` +
+                          `If proposing changes, return UNIFIED DIFFS (with headers like @@ -1,1 +1,1 @@) that can be applied directly to the current file. Do not rewrite the entire file. Keep diffs minimal and focused on fixes.`
                 }
             }
         });
     }
+
+    public static async analyzeImage(base64Image: string, promptText: string): Promise<any> {
+        const config = vscode.workspace.getConfiguration('aria');
+        let apiKey = config.get<string>('apiKey') || process.env.GEMINI_API_KEY;
+        
+        // Vision models: Try newer models first
+    const visionModels = [
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite-preview-02-05",
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-001",
+        "gemini-1.5-flash-002",
+        "gemini-1.5-pro",
+        "gemini-1.5-pro-001",
+        "gemini-1.5-pro-002"
+    ];
+
+    if (!apiKey) {
+            Logger.log("[A.R.I.A] AI unavailable — running in dry mode");
+            return {
+                summary: "Vision Analysis (Dry Run)",
+                detectedBoards: ["Unknown Board (Dry Run)"],
+                detectedComponents: ["Unknown Component"],
+                confidence: 0.0,
+                disclaimers: ["Vision analysis requires a valid API Key."]
+            };
+        }
+
+        apiKey = apiKey.trim();
+        
+        const payload = {
+            contents: [{
+                parts: [
+                    { text: promptText },
+                    {
+                        inline_data: {
+                            mime_type: "image/jpeg",
+                            data: base64Image
+                        }
+                    }
+                ]
+            }]
+        };
+
+        const body = JSON.stringify(payload);
+        
+        let lastError: Error | null = null;
+
+        for (const model of visionModels) {
+            try {
+                Logger.log(`[A.R.I.A] Sending image to AI Model: ${model}...`);
+                const response = await this.callGemini(apiKey, model, body);
+                Logger.log(`[A.R.I.A] Vision analysis success with ${model}.`);
+                return this.parseResponse(response);
+            } catch (error) {
+                lastError = error instanceof Error ? error : new Error(String(error));
+                Logger.log(`[A.R.I.A] Vision analysis failed with ${model}: ${lastError.message}`);
+                // Continue to next model
+            }
+        }
+
+        // If all failed
+    Logger.log(`[A.R.I.A] All vision models failed. Last error: ${lastError?.message}`);
+    
+    // Run diagnostic to help user debug
+    await this.logAvailableModels(apiKey);
+
+    throw lastError;
+}
 
     private static async callGemini(apiKey: string, model: string, body: string, retries = 1): Promise<any> {
         const controller = new AbortController();

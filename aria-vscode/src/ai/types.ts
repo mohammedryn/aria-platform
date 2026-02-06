@@ -4,6 +4,11 @@ export interface AnalysisInput {
     language: string;
     filePath: string;
     hardwareContext?: string;
+    visionContext?: {
+        boards: string[];
+        components: string[];
+        confidence: number;
+    };
 }
 
 export interface CodeSuggestion {

@@ -1,5 +1,6 @@
 {
   "name": "aria-vscode",
+  "publisher": "Ranch-Hand-Robotics",
   "displayName": "A.R.I.A. – Hardware-Aware IDE Copilot",
   "description": "Hardware-Aware IDE Copilot for Professional Engineering",
   "version": "0.0.1",
@@ -30,12 +31,19 @@
       {
         "command": "aria.analyzeWorkspace",
         "title": "A.R.I.A: Analyze Workspace"
+      },
+      {
+        "command": "aria.captureImage",
+        "title": "A.R.I.A: Capture Hardware Image"
       }
     ],
     "menus": {
       "commandPalette": [
         {
           "command": "aria.openPanel"
+        },
+        {
+          "command": "aria.captureImage"
         },
         {
           "command": "aria.analyzeSelection",

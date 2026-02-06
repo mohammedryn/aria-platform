@@ -45,6 +45,17 @@ export async function analyzeSelection() {
         hardwareContext: hwInfo.summary
     };
 
+    // Inject Vision Context if available
+    if (AriaPanel.currentPanel && AriaPanel.currentPanel.visionResult) {
+        const v = AriaPanel.currentPanel.visionResult;
+        aiInput.visionContext = {
+            boards: v.detectedBoards,
+            components: v.detectedComponents,
+            confidence: v.confidence
+        };
+        Logger.log(`[A.R.I.A] Injected Vision Context: ${v.detectedBoards.join(', ')}`);
+    }
+
     vscode.window.setStatusBarMessage(`A.R.I.A: Analyzing with AI...`);
 
     // 3. Call AI (Silent)
