@@ -5,12 +5,20 @@ import { Logger } from '../utils/logger';
 import * as cp from 'child_process';
 import * as path from 'path';
 
+import * as fs from 'fs';
+
 export class CameraBridge {
     private static _server: http.Server | null = null;
     private static _pythonProcess: cp.ChildProcess | null = null;
     private static _port = 0;
     private static _latestFrame: Buffer | null = null;
     private static _streamClients: http.ServerResponse[] = [];
+
+    public static stopStream() {
+        Logger.log("[CameraBridge] Stopping stream requested...");
+        this._killPython();
+        this._closeServer();
+    }
 
     public static async capture(mode: 'external' | 'embedded' | 'stream' | 'native-python' = 'external', onServerReady?: (url: string) => void): Promise<string | null> {
         this._latestFrame = null;
@@ -45,11 +53,24 @@ export class CameraBridge {
                         }
                         
                         // Check for capture result
-                        if (trimmed.includes('CAPTURE_SUCCESS:')) {
-                            const base64 = trimmed.split('CAPTURE_SUCCESS:')[1];
-                            Logger.log("[CameraBridge-Py] Capture received from Python.");
-                            this._killPython();
-                            resolve(base64);
+                        if (trimmed.includes('CAPTURE_FILE:')) {
+                            const filePath = trimmed.split('CAPTURE_FILE:')[1].trim();
+                            Logger.log(`[CameraBridge-Py] Capture file reported: ${filePath}`);
+                            
+                            try {
+                                const fileData = fs.readFileSync(filePath, 'utf8');
+                                Logger.log(`[CameraBridge-Py] Read ${fileData.length} chars from file.`);
+                                
+                                // Clean up file
+                                fs.unlinkSync(filePath);
+                                
+                                this._killPython();
+                                resolve(fileData);
+                            } catch (err) {
+                                Logger.log(`[CameraBridge-Py] Error reading capture file: ${err}`);
+                                this._killPython();
+                                reject(err);
+                            }
                         }
                     }
                 });
@@ -210,6 +231,11 @@ export class CameraBridge {
             // Timeout
             setTimeout(() => { if (this._server) { this._closeServer(); resolve(null); } }, 300000); // 5 min timeout
         });
+    }
+
+    public static dispose() {
+        this._killPython();
+        this._closeServer();
     }
 
     private static _killPython() {

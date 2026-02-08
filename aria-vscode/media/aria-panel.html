@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src http://127.0.0.1:*; img-src vscode-resource: https: data: http://127.0.0.1:*; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src vscode-resource: https: data: blob: mediastream: http://127.0.0.1:*;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src http://127.0.0.1:*; frame-src http://127.0.0.1:*; img-src vscode-resource: https: data: blob: http://127.0.0.1:*; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src vscode-resource: https: data: blob: mediastream: http://127.0.0.1:*;">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>A.R.I.A. Copilot</title>
     <style>
@@ -72,21 +72,74 @@
             line-height: 1.5;
         }
 
-        /* Analysis Cards */
-        .analysis-card {
-            border-left: 3px solid var(--vscode-notebook-cellBorderColor);
-            padding-left: 10px;
+        /* Thought Process (Markdown Style) */
+        .thought-process-container {
+            margin-top: 15px;
+            margin-bottom: 15px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 6px;
+            overflow: hidden;
+            background-color: var(--vscode-editor-inactiveSelectionBackground);
         }
-        .analysis-card h3 {
-            margin-top: 0;
+        
+        .thought-process-header {
+            padding: 8px 12px;
+            background-color: var(--vscode-editor-lineHighlightBackground);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            font-size: 0.9em;
+            color: var(--vscode-foreground);
+            user-select: none;
         }
-        .analysis-section {
-            margin-top: 10px;
+        
+        .thought-process-header:hover {
+            background-color: var(--vscode-list-hoverBackground);
         }
-        .analysis-meta {
-            font-size: 0.8em;
-            opacity: 0.8;
-            margin-top: 10px;
+
+        .thought-process-content {
+            padding: 15px;
+            font-family: var(--vscode-editor-font-family);
+            font-size: 0.9em;
+            line-height: 1.6;
+            color: var(--vscode-editor-foreground);
+            white-space: pre-wrap;
+            display: none; /* Hidden by default if closed */
+        }
+
+        .thought-process-content[open] {
+            display: block;
+        }
+
+        /* Status Dot */
+        .status-dot {
+            height: 8px;
+            width: 8px;
+            background-color: var(--vscode-charts-blue);
+            border-radius: 50%;
+            display: inline-block;
+        }
+        
+        /* Markdown Content Styling */
+        .markdown-content h1, .markdown-content h2, .markdown-content h3 {
+            margin-top: 1em;
+            margin-bottom: 0.5em;
+            font-weight: 600;
+            color: var(--vscode-textLink-foreground);
+        }
+        .markdown-content code {
+            font-family: var(--vscode-editor-font-family);
+            background-color: var(--vscode-textCodeBlock-background);
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        .markdown-content pre {
+            background-color: var(--vscode-textCodeBlock-background);
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
         }
 
         /* Suggestions */
@@ -225,6 +278,12 @@
         <h1><span class="status-dot"></span>A.R.I.A. Copilot</h1>
         <h2>Hardware-Aware IDE Copilot</h2>
     </header>
+    <div id="model-container" style="padding: 10px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 0.85em; opacity: 0.8;">Model</span>
+        <select id="model-select" style="flex: 1; padding: 6px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); border-radius: 4px;"></select>
+        <button id="model-refresh" class="secondary" style="padding: 6px 10px;">Refresh</button>
+        <span id="model-status" style="font-size: 0.8em; opacity: 0.7;"></span>
+    </div>
 
     <!-- Visual Hardware Context Section -->
     <div id="vision-container" style="padding: 15px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); display: none;">
@@ -248,9 +307,43 @@
 
     <!-- Camera Stream Section -->
     <div id="camera-stream-container" style="padding: 15px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: #000; display: none; flex-direction: column; align-items: center;">
+        <div style="width: 100%; display: flex; justify-content: flex-end; margin-bottom: 5px;">
+             <button id="btn-close-stream" style="background: none; border: none; color: #fff; font-size: 1.2em; cursor: pointer;" title="Close Camera">✕</button>
+        </div>
         <img id="camera-stream-img" style="width: 100%; max-height: 300px; object-fit: contain; border: 1px solid #333;" />
         <button id="btn-capture-stream" style="margin-top: 10px; width: 100%;">Capture Photo</button>
         <p style="font-size: 0.8em; opacity: 0.7; margin-top: 5px;">Native Python Stream</p>
+    </div>
+
+    <!-- Firmware Deployment Section -->
+    <div id="firmware-container" style="padding: 15px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-editor-background); display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0; font-size: 0.9em; text-transform: uppercase;">Firmware Deployment</h3>
+            <span id="deployment-status" style="font-size: 0.8em; opacity: 0.7;">Ready</span>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <button id="btn-build" style="flex: 1;">Build Firmware</button>
+            <button id="btn-flash" style="flex: 1;" class="secondary">Flash to Device</button>
+        </div>
+    </div>
+
+    <!-- Serial Diagnostics Section -->
+    <div id="serial-container" style="padding: 15px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0; font-size: 0.9em; text-transform: uppercase;">Serial Diagnostics</h3>
+            <span id="serial-status" style="font-size: 0.8em; opacity: 0.7; color: var(--vscode-descriptionForeground);">Disconnected</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85em;">
+             <span>Buffered Lines:</span>
+             <span id="serial-lines">0</span>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <button id="btn-open-serial" style="flex: 1;">Open Monitor</button>
+            <button id="btn-analyze-serial" style="flex: 1;" class="secondary">Analyze Logs</button>
+        </div>
+        <div id="serial-results" style="display: none; background: var(--vscode-editor-background); padding: 10px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; font-size: 0.85em;">
+            <!-- Analysis results go here -->
+        </div>
     </div>
 
 
@@ -285,11 +378,26 @@
         const visionWarnings = document.getElementById('vision-warnings');
         const btnDiscardVision = document.getElementById('btn-discard-vision');
         const btnUseReference = document.getElementById('btn-use-reference');
+        const modelSelect = document.getElementById('model-select');
+        const modelRefresh = document.getElementById('model-refresh');
+        const modelStatus = document.getElementById('model-status');
         
+        const btnBuild = document.getElementById('btn-build');
+        const btnFlash = document.getElementById('btn-flash');
+        const deploymentStatus = document.getElementById('deployment-status');
+
+        const btnOpenSerial = document.getElementById('btn-open-serial');
+        const btnAnalyzeSerial = document.getElementById('btn-analyze-serial');
+        const serialStatus = document.getElementById('serial-status');
+        const serialLines = document.getElementById('serial-lines');
+        const serialResults = document.getElementById('serial-results');
+
         const cameraStreamContainer = document.getElementById('camera-stream-container');
         const cameraStreamImg = document.getElementById('camera-stream-img');
         const btnCaptureStream = document.getElementById('btn-capture-stream');
+        const btnCloseStream = document.getElementById('btn-close-stream');
         let currentStreamUrl = '';
+        let modelRequestInFlight = false;
 
         // Listen for messages from extension (openCamera)
         window.addEventListener('message', event => {
@@ -297,6 +405,14 @@
             if (message.type === 'visionResult') {
                 cameraStreamContainer.style.display = 'none';
                 updateVisionUI(message.data);
+            }
+            if (message.type === 'serialResult') {
+                updateSerialUI(message.data);
+            }
+            if (message.type === 'serialStatus') {
+                serialStatus.textContent = message.connected ? "Connected" : "Disconnected";
+                serialStatus.style.color = message.connected ? "var(--vscode-testing-iconPassed)" : "var(--vscode-descriptionForeground)";
+                serialLines.textContent = message.lineCount;
             }
             if (message.command === 'showStream') {
                 currentStreamUrl = message.url;
@@ -314,6 +430,36 @@
                     btnCaptureStream.disabled = true;
                     btnCaptureStream.innerText = "Capturing...";
                     vscode.postMessage({ command: 'triggerCapture', url: currentStreamUrl });
+                }
+            });
+        }
+        
+        if (btnCloseStream) {
+            btnCloseStream.addEventListener('click', () => {
+                cameraStreamContainer.style.display = 'none';
+                cameraStreamImg.src = ''; // Stop trying to load
+                vscode.postMessage({ command: 'stopStream' });
+            });
+        }
+
+        function requestModels() {
+            if (modelRequestInFlight) return;
+            modelRequestInFlight = true;
+            modelStatus.textContent = 'Loading...';
+            vscode.postMessage({ command: 'getModels' });
+        }
+
+        if (modelRefresh) {
+            modelRefresh.addEventListener('click', () => {
+                requestModels();
+            });
+        }
+
+        if (modelSelect) {
+            modelSelect.addEventListener('change', () => {
+                const value = modelSelect.value;
+                if (value) {
+                    vscode.postMessage({ command: 'setModel', model: value });
                 }
             });
         }
@@ -368,6 +514,97 @@
                 btnUseReference.disabled = true;
                 btnUseReference.style.opacity = "0.7";
                 // Vision is already stored in backend, just visual confirmation
+            });
+        }
+
+        if (btnBuild) {
+            btnBuild.addEventListener('click', () => {
+                deploymentStatus.textContent = "Building...";
+                vscode.postMessage({ command: 'buildFirmware' });
+            });
+        }
+        
+        if (btnFlash) {
+            btnFlash.addEventListener('click', () => {
+                deploymentStatus.textContent = "Starting Flash...";
+                vscode.postMessage({ command: 'flashFirmware' });
+            });
+        }
+
+        if (btnOpenSerial) {
+            btnOpenSerial.addEventListener('click', () => {
+                vscode.postMessage({ command: 'executeCommand', text: 'aria.openSerialMonitor' });
+            });
+        }
+
+        if (btnAnalyzeSerial) {
+            btnAnalyzeSerial.addEventListener('click', () => {
+                serialResults.style.display = 'block';
+                serialResults.innerHTML = '<em>Analyzing...</em>';
+                vscode.postMessage({ command: 'executeCommand', text: 'aria.analyzeSerialLogs' });
+            });
+        }
+
+        function updateSerialUI(data) {
+            serialResults.style.display = 'block';
+            let html = '';
+            
+            if (data.thoughtProcess) {
+                html += `
+                    <div class="thought-process-container">
+                        <details open>
+                        <summary class="thought-process-header">
+                             <span class="status-dot"></span> 🧠 Thinking Process
+                        </summary>
+                            <div class="thought-process-content" open>
+                                ${data.thoughtProcess.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+                            </div>
+                        </details>
+                    </div>
+                `;
+            }
+
+            // Since we moved to plain text output, we rely on the thoughtProcess above to show the main content.
+            // If there are legacy structured fields (suspectedIssues, etc.), we can still show them below,
+            // but for the new flow, thoughtProcess contains everything.
+
+            if (data.confidence !== undefined && data.confidence < 1.0) {
+                 html += `<div style="margin-top: 5px; font-size: 0.8em; opacity: 0.8;">Confidence: ${(data.confidence * 100).toFixed(0)}%</div>`;
+            }
+
+            if (data.suspectedIssues && data.suspectedIssues.length > 0) {
+                html += `<div style="margin-top:5px; color: var(--vscode-errorForeground);"><strong>Issues:</strong></div>`;
+                html += `<ul>${data.suspectedIssues.map(i => `<li>${i}</li>`).join('')}</ul>`;
+            }
+
+            if (data.likelyRootCauses && data.likelyRootCauses.length > 0) {
+                html += `<div style="margin-top:5px;"><strong>Root Causes:</strong></div>`;
+                html += `<ul>${data.likelyRootCauses.map(i => `<li>${i}</li>`).join('')}</ul>`;
+            }
+
+            if (data.suggestedFixes && data.suggestedFixes.length > 0) {
+                html += `<div style="margin-top:5px;"><strong>Fixes:</strong></div>`;
+                data.suggestedFixes.forEach(fix => {
+                    html += `<div style="border: 1px solid var(--vscode-panel-border); padding: 5px; margin-top: 5px;">`;
+                    html += `<div>${fix.description}</div>`;
+                    if (fix.diff) {
+                        html += `<button class="btn-preview-diff" data-diff="${encodeURIComponent(fix.diff)}" style="margin-top: 5px; font-size: 0.8em;">Preview Fix</button>`;
+                    }
+                    html += `</div>`;
+                });
+            }
+            
+            serialResults.innerHTML = html;
+
+            // Re-attach diff listeners
+            document.querySelectorAll('.btn-preview-diff').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const diff = decodeURIComponent(e.target.dataset.diff);
+                    vscode.postMessage({ 
+                        command: 'previewDiff', 
+                        diff: diff 
+                    });
+                });
             });
         }
 
@@ -516,6 +753,32 @@
         window.addEventListener('message', event => {
             const message = event.data;
             switch (message.type) {
+                case 'modelList':
+                    modelRequestInFlight = false;
+                    modelSelect.innerHTML = '';
+                    if (message.models && message.models.length > 0) {
+                        message.models.forEach(m => {
+                            const option = document.createElement('option');
+                            option.value = m;
+                            option.textContent = m;
+                            modelSelect.appendChild(option);
+                        });
+                    }
+                    if (message.selected) {
+                        const exists = Array.from(modelSelect.options).some(o => o.value === message.selected);
+                        if (!exists) {
+                            const option = document.createElement('option');
+                            option.value = message.selected;
+                            option.textContent = message.selected;
+                            modelSelect.appendChild(option);
+                        }
+                        modelSelect.value = message.selected;
+                    }
+                    modelStatus.textContent = message.error ? message.error : `${(message.models || []).length} models`;
+                    break;
+                case 'modelSelected':
+                    modelStatus.textContent = `Selected ${message.model}`;
+                    break;
                 case 'addResult':
                     addEntry(message.text, 'result');
                     break;
@@ -527,6 +790,23 @@
                     break;
                 case 'visionResult':
                     updateVisionUI(message.data);
+                    break;
+                case 'buildStatus':
+                    deploymentStatus.textContent = message.status === 'success' ? 'Build Success' : 'Build Failed';
+                    break;
+                case 'flashStatus':
+                    deploymentStatus.textContent = message.status === 'success' ? 'Flash Success' : 'Flash Failed';
+                    break;
+                case 'analysisLoading':
+                    addEntry('<em>Analyzing...</em>', 'result');
+                    break;
+                case 'analysisError':
+                    addEntry(`<span style="color:var(--vscode-errorForeground)">Analysis Failed: ${message.error}</span>`, 'result');
+                    break;
+                case 'successMessage':
+                    addEntry(`<div style="padding: 12px; background: var(--vscode-textBlockQuote-background); border-left: 4px solid var(--vscode-testing-iconPassed); border-radius: 4px; display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 1.2em;">${message.text}</span>
+                    </div>`, 'result');
                     break;
             }
         });
@@ -560,9 +840,21 @@
             
             // Header
             card.innerHTML = `
-                <h3>${metadata.source === 'selection' ? '🔎 Selection' : '📄 File'}: ${metadata.filePath}</h3>
+                <h3>${metadata.source === 'selection' ? '🔎 Selection' : metadata.source === 'workspace' ? '📂 Workspace' : '📄 File'}: ${metadata.filePath}</h3>
                 <p>${analysis.summary}</p>
                 
+                ${analysis.thoughtProcess ? `
+                <div class="analysis-section">
+                    <details open>
+                        <summary style="cursor: pointer; font-weight: bold; color: var(--vscode-descriptionForeground); display: flex; align-items: center; gap: 5px;">
+                             <span class="status-dot" style="background-color: var(--vscode-charts-blue);"></span> 🧠 ${metadata.model || 'Gemini'} Thinking Process
+                        </summary>
+                        <div style="margin-top: 10px; padding: 10px; background: var(--vscode-editor-inactiveSelectionBackground); border-left: 2px solid var(--vscode-charts-blue); border-radius: 0 4px 4px 0; font-family: var(--vscode-editor-font-family); white-space: pre-wrap; font-size: 0.9em; max-height: 300px; overflow-y: auto; color: var(--vscode-editor-foreground);">
+                            ${analysis.thoughtProcess.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+                        </div>
+                    </details>
+                </div>` : ''}
+
                 <div class="analysis-section">
                     <strong>⚠️ Issues (${analysis.detectedIssues.length})</strong>
                     <ul>${analysis.detectedIssues.map(i => `<li>${i}</li>`).join('')}</ul>
@@ -576,6 +868,21 @@
 
             // Suggestions
             if (analysis.suggestions && analysis.suggestions.length > 0) {
+                const bulkActions = document.createElement('div');
+                bulkActions.className = 'analysis-section';
+                
+                const applyAllBtn = document.createElement('button');
+                applyAllBtn.textContent = 'Apply All Fixes';
+                applyAllBtn.onclick = () => {
+                    vscode.postMessage({
+                        command: 'applyAllDiffs',
+                        diffs: analysis.suggestions.map(s => s.diff)
+                    });
+                };
+                
+                bulkActions.appendChild(applyAllBtn);
+                card.appendChild(bulkActions);
+
                 const suggestionsTitle = document.createElement('div');
                 suggestionsTitle.className = 'analysis-section';
                 suggestionsTitle.innerHTML = `<strong>✨ Code Suggestions (${analysis.suggestions.length})</strong>`;
@@ -587,7 +894,12 @@
                     
                     const sHeader = document.createElement('div');
                     sHeader.className = 'suggestion-header';
-                    sHeader.innerHTML = `<span>${suggestion.description}</span> <span>▼</span>`;
+                    
+                    const fileBadge = suggestion.filePath 
+                        ? `<span style="font-size:0.8em; opacity:0.7; margin-right:8px; background:var(--vscode-badge-background); color:var(--vscode-badge-foreground); padding:2px 4px; border-radius:3px;">${suggestion.filePath}</span>` 
+                        : '';
+                        
+                    sHeader.innerHTML = `<div style="display:flex; align-items:center; overflow:hidden; text-overflow:ellipsis;">${fileBadge}<span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${suggestion.description}</span></div> <span>▼</span>`;
                     sHeader.onclick = () => {
                         const body = sItem.querySelector('.suggestion-body');
                         body.classList.toggle('open');
@@ -609,29 +921,7 @@
                         });
                     };
 
-                    const btnApply = document.createElement('button');
-                    btnApply.textContent = 'Apply Fix';
-                    btnApply.onclick = () => {
-                        vscode.postMessage({
-                            command: 'applyDiff',
-                            diff: suggestion.diff,
-                            description: suggestion.description
-                        });
-                    };
-
-                    const btnReject = document.createElement('button');
-                    btnReject.textContent = 'Reject';
-                    btnReject.className = 'secondary';
-                    btnReject.onclick = () => {
-                        // Remove suggestion from UI or mark as rejected
-                        sItem.style.opacity = '0.5';
-                        sItem.style.pointerEvents = 'none';
-                        // Optional: Log rejection
-                    };
-
                     actions.appendChild(btnPreview);
-                    actions.appendChild(btnApply);
-                    actions.appendChild(btnReject);
                     
                     sBody.appendChild(actions);
                     sItem.appendChild(sHeader);
@@ -650,6 +940,8 @@
             stream.appendChild(container);
             stream.scrollTop = stream.scrollHeight;
         }
+
+        requestModels();
 
         function renderHardwareValidation(result, metadata) {
             const container = document.createElement('div');

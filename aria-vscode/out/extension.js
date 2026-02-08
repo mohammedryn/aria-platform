@@ -26,5 +26,9 @@ function activate(context) {
         logger_1.Logger.log(`Active file: ${fileName}`);
     }
 }
-function deactivate() { }
+const cameraBridge_1 = require("./vision/cameraBridge");
+function deactivate() {
+    logger_1.Logger.log("Deactivating extension, cleaning up camera...");
+    cameraBridge_1.CameraBridge.dispose();
+}
 //# sourceMappingURL=extension.js.map

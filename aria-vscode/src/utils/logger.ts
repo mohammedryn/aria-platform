@@ -14,6 +14,10 @@ export class Logger {
         this.channel.appendLine(`[A.R.I.A] ${message}`);
     }
 
+    public static logNoPrefix(message: string) {
+        this.channel.appendLine(message);
+    }
+
     public static logStructured(title: string, data: Record<string, any>) {
         this.channel.appendLine(`[A.R.I.A] ${title}`);
         for (const [key, value] of Object.entries(data)) {

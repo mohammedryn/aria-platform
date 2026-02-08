@@ -82,26 +82,17 @@ void recvWithStartEndMarkers() {
       if (rc != endMarker) {
         receivedChars[ndx] = rc;
         ndx++;
-        if (ndx >= numChars) {
-          ndx = numChars - 1;
-        }
-      } else {
         receivedChars[ndx] = '\0';
-        recvInProgress = false;
-        ndx = 0;
-        newData = true;
-      }
     } else if (rc == startMarker) {
       recvInProgress = true;
     }
-  }
+        }
+    }
+void parseData() {
+    // Implementation logic here
 }
 
-void parseData() {
-  // Format: <J1,J2,J3,IGNORE,IGNORE,IGNORE,TIME>
-  char *strtokIndx;
-
-  strtokIndx = strtok(receivedChars, ",");
+void moveHardware() {
   targetJ1 = atol(strtokIndx);
 
   strtokIndx = strtok(NULL, ",");

@@ -6,7 +6,13 @@ const http = require("http");
 const logger_1 = require("../utils/logger");
 const cp = require("child_process");
 const path = require("path");
+const fs = require("fs");
 class CameraBridge {
+    static stopStream() {
+        logger_1.Logger.log("[CameraBridge] Stopping stream requested...");
+        this._killPython();
+        this._closeServer();
+    }
     static async capture(mode = 'external', onServerReady) {
         this._latestFrame = null;
         this._streamClients = [];
@@ -34,11 +40,22 @@ class CameraBridge {
                                 onServerReady(serverUrl);
                         }
                         // Check for capture result
-                        if (trimmed.includes('CAPTURE_SUCCESS:')) {
-                            const base64 = trimmed.split('CAPTURE_SUCCESS:')[1];
-                            logger_1.Logger.log("[CameraBridge-Py] Capture received from Python.");
-                            this._killPython();
-                            resolve(base64);
+                        if (trimmed.includes('CAPTURE_FILE:')) {
+                            const filePath = trimmed.split('CAPTURE_FILE:')[1].trim();
+                            logger_1.Logger.log(`[CameraBridge-Py] Capture file reported: ${filePath}`);
+                            try {
+                                const fileData = fs.readFileSync(filePath, 'utf8');
+                                logger_1.Logger.log(`[CameraBridge-Py] Read ${fileData.length} chars from file.`);
+                                // Clean up file
+                                fs.unlinkSync(filePath);
+                                this._killPython();
+                                resolve(fileData);
+                            }
+                            catch (err) {
+                                logger_1.Logger.log(`[CameraBridge-Py] Error reading capture file: ${err}`);
+                                this._killPython();
+                                reject(err);
+                            }
                         }
                     }
                 });
@@ -195,6 +212,10 @@ class CameraBridge {
                 resolve(null);
             } }, 300000); // 5 min timeout
         });
+    }
+    static dispose() {
+        this._killPython();
+        this._closeServer();
     }
     static _killPython() {
         if (this._pythonProcess) {

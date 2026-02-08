@@ -34,7 +34,33 @@
       },
       {
         "command": "aria.captureImage",
-        "title": "A.R.I.A: Capture Hardware Image"
+        "title": "A.R.I.A: Capture Hardware Image",
+        "category": "A.R.I.A"
+      },
+      {
+        "command": "aria.setApiKey",
+        "title": "A.R.I.A: Set API Key",
+        "category": "A.R.I.A"
+      },
+      {
+        "command": "aria.buildAndFlash",
+        "title": "A.R.I.A: Build & Flash Firmware",
+        "category": "A.R.I.A"
+      },
+      {
+        "command": "aria.openSerialMonitor",
+        "title": "A.R.I.A: Open Serial Monitor",
+        "category": "A.R.I.A"
+      },
+      {
+        "command": "aria.analyzeSerialLogs",
+        "title": "A.R.I.A: Analyze Serial Logs",
+        "category": "A.R.I.A"
+      },
+      {
+        "command": "aria.analyzeTerminal",
+        "title": "A.R.I.A: Analyze Terminal Selection",
+        "category": "A.R.I.A"
       }
     ],
     "menus": {
@@ -44,6 +70,9 @@
         },
         {
           "command": "aria.captureImage"
+        },
+        {
+          "command": "aria.buildAndFlash"
         },
         {
           "command": "aria.analyzeSelection",
@@ -78,8 +107,16 @@
         },
         "aria.apiModel": {
           "type": "string",
-          "default": "gemini-2.5-flash",
-          "description": "Gemini Model ID (e.g., gemini-2.0-flash, gemini-1.5-flash). A.R.I.A will automatically try fallbacks if this fails."
+          "default": "gemini-3-flash-preview",
+          "enum": [
+            "gemini-3-flash-preview",
+            "gemini-3-pro-preview",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash-lite-preview-02-05",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-001"
+          ],
+          "description": "Gemini Model ID to use. A.R.I.A will automatically try fallbacks if this fails."
         }
       }
     }

@@ -28,4 +28,9 @@ export function activate(context: vscode.ExtensionContext) {
     }
 }
 
-export function deactivate() {}
+import { CameraBridge } from './vision/cameraBridge';
+
+export function deactivate() {
+    Logger.log("Deactivating extension, cleaning up camera...");
+    CameraBridge.dispose();
+}

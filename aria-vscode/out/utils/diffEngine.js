@@ -132,6 +132,10 @@ class DiffEngine {
                             if (l.startsWith('+') || l.startsWith(' ')) {
                                 chunkNewLines.push(l.substring(1));
                             }
+                            else if (l === '') {
+                                // Empty line, treat as context
+                                chunkNewLines.push('');
+                            }
                             p++;
                         }
                         // Perform Splice

@@ -1,0 +1,5 @@
+[wokwi]
+version = 1
+firmware = '.pio/build/teensy41/firmware.hex'
+elf = '.pio/build/teensy41/firmware.elf'
+diagram = '.wokwi/diagram.json'

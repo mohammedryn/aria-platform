@@ -2,6 +2,17 @@
 
 A.R.I.A. (Autonomous Reasoning & Interface Agent) is a hardware-aware IDE copilot designed for professional engineering. It integrates seamlessly into VS Code to provide intelligent assistance, code analysis, and eventually, hardware simulation and control capabilities.
 
+## Quick Start (For Judges)
+
+1.  **Install/Run**: Open this folder in VS Code, run `npm install`, then press `F5` to launch the Extension Development Host.
+2.  **Set API Key**:
+    *   Press `Ctrl+Shift+P` and run **A.R.I.A: Set API Key**.
+    *   Paste the **Testing Login (API Key)** provided in the submission form.
+3.  **Test Camera**:
+    *   Run **A.R.I.A: Capture Hardware Image**.
+    *   Select **Native Python**.
+    *   Click **Capture** to analyze your hardware.
+
 ## Installation
 
 1. Open this folder in VS Code.

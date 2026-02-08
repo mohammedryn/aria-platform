@@ -43,14 +43,23 @@ class MJPEGHandler(http.server.BaseHTTPRequestHandler):
             # Return current frame as JSON base64
             if server.latest_frame:
                 b64 = base64.b64encode(server.latest_frame).decode('utf-8')
-                resp = json.dumps({"success": True, "base64": b64}).encode('utf-8')
+                
+                # Write to temp file to avoid stdout buffering issues with large strings
+                import tempfile
+                import os
+                
+                tmp_filename = os.path.join(tempfile.gettempdir(), f'aria_capture_{int(time.time())}.txt')
+                with open(tmp_filename, 'w') as f:
+                    f.write(b64)
+                
+                resp = json.dumps({"success": True, "base64": "FILE_MODE"}).encode('utf-8')
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
                 self.wfile.write(resp)
                 
-                # PRINT BASE64 TO STDOUT FOR EXTENSION TO READ
-                print(f"CAPTURE_SUCCESS:{b64}")
+                # Notify Extension via Stdout
+                print(f"CAPTURE_FILE:{tmp_filename}")
                 sys.stdout.flush()
 
                 # Signal to shut down after capture

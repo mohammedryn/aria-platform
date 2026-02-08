@@ -11,32 +11,67 @@
       "attrs": {}
     },
     {
-      "type": "wokwi-servo",
-      "id": "servo1",
+      "type": "wokwi-a4988",
+      "id": "driver1",
       "top": -100,
       "left": 300,
-      "attrs": {
-        "horn": "cross"
-      }
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-stepper-motor",
+      "id": "stepper1",
+      "top": -150,
+      "left": 450,
+      "attrs": {}
     }
   ],
   "connections": [
     [
-      "mcu:9",
-      "servo1:PWM",
-      "green",
+      "mcu:2",
+      "driver1:STEP",
+      "blue",
       []
     ],
     [
-      "servo1:GND",
+      "mcu:3",
+      "driver1:DIR",
+      "yellow",
+      []
+    ],
+    [
+      "driver1:GND",
       "mcu:GND",
       "black",
       []
     ],
     [
-      "servo1:V+",
+      "driver1:VDD",
       "mcu:5V",
       "red",
+      []
+    ],
+    [
+      "driver1:1A",
+      "stepper1:A-",
+      "green",
+      []
+    ],
+    [
+      "driver1:1B",
+      "stepper1:A+",
+      "green",
+      []
+    ],
+    [
+      "driver1:2A",
+      "stepper1:B+",
+      "blue",
+      []
+    ],
+    [
+      "driver1:2B",
+      "stepper1:B-",
+      "blue",
       []
     ]
   ]

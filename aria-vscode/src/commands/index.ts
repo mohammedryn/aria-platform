@@ -5,6 +5,11 @@ import { analyzeFile } from './analyzeFile';
 import { analyzeWorkspace } from './analyzeWorkspace';
 import { validateHardware } from './validateHardware';
 import { captureImage } from './captureImage';
+import { setApiKey } from './setApiKey';
+import { buildAndFlash } from './buildAndFlash';
+import { openSerialMonitorCommand } from './openSerialMonitor';
+import { analyzeSerialLogsCommand } from './analyzeSerialLogs';
+import { analyzeTerminalCommand } from './analyzeTerminal';
 
 export function registerCommands(context: vscode.ExtensionContext) {
     const commands = [
@@ -13,7 +18,12 @@ export function registerCommands(context: vscode.ExtensionContext) {
         { id: 'aria.analyzeFile', handler: analyzeFile },
         { id: 'aria.analyzeWorkspace', handler: analyzeWorkspace },
         { id: 'aria.validateHardware', handler: validateHardware },
-        { id: 'aria.captureImage', handler: captureImage }
+        { id: 'aria.captureImage', handler: captureImage },
+        { id: 'aria.setApiKey', handler: setApiKey },
+        { id: 'aria.buildAndFlash', handler: buildAndFlash },
+        { id: 'aria.openSerialMonitor', handler: openSerialMonitorCommand },
+        { id: 'aria.analyzeSerialLogs', handler: analyzeSerialLogsCommand },
+        { id: 'aria.analyzeTerminal', handler: analyzeTerminalCommand }
     ];
 
     for (const cmd of commands) {

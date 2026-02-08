@@ -147,6 +147,9 @@ export class DiffEngine {
                             const l = diffLines[p];
                             if (l.startsWith('+') || l.startsWith(' ')) {
                                 chunkNewLines.push(l.substring(1));
+                            } else if (l === '') {
+                                // Empty line, treat as context
+                                chunkNewLines.push('');
                             }
                             p++;
                         }
