@@ -5,6 +5,7 @@ import { analyzeFile } from './analyzeFile';
 import { analyzeWorkspace } from './analyzeWorkspace';
 import { validateHardware } from './validateHardware';
 import { captureImage } from './captureImage';
+import { captureVideo } from './captureVideo';
 import { setApiKey } from './setApiKey';
 import { buildAndFlash } from './buildAndFlash';
 import { openSerialMonitorCommand } from './openSerialMonitor';
@@ -19,6 +20,7 @@ export function registerCommands(context: vscode.ExtensionContext) {
         { id: 'aria.analyzeWorkspace', handler: analyzeWorkspace },
         { id: 'aria.validateHardware', handler: validateHardware },
         { id: 'aria.captureImage', handler: captureImage },
+        { id: 'aria.captureVideo', handler: captureVideo },
         { id: 'aria.setApiKey', handler: setApiKey },
         { id: 'aria.buildAndFlash', handler: buildAndFlash },
         { id: 'aria.openSerialMonitor', handler: openSerialMonitorCommand },

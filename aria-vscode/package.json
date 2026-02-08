@@ -38,6 +38,11 @@
         "category": "A.R.I.A"
       },
       {
+        "command": "aria.captureVideo",
+        "title": "A.R.I.A: Capture Hardware Video",
+        "category": "A.R.I.A"
+      },
+      {
         "command": "aria.setApiKey",
         "title": "A.R.I.A: Set API Key",
         "category": "A.R.I.A"
@@ -70,6 +75,9 @@
         },
         {
           "command": "aria.captureImage"
+        },
+        {
+          "command": "aria.captureVideo"
         },
         {
           "command": "aria.buildAndFlash"

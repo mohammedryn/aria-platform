@@ -7,7 +7,7 @@ const ariaPanel_1 = require("../panels/ariaPanel");
 const cameraPanel_1 = require("../panels/cameraPanel");
 const cameraBridge_1 = require("../vision/cameraBridge");
 async function captureImage() {
-    const choice = await vscode.window.showQuickPick(['Open Camera (Python Native - Pro)', 'Open Camera (External Browser)', 'Select Image File...'], { placeHolder: 'How do you want to provide the hardware image?' });
+    const choice = await vscode.window.showQuickPick(['Open Camera (Python Native - Pro)', 'Open Camera (External Browser)', 'Select Image File...'], { placeHolder: 'How do you want to capture hardware data?' });
     if (!choice)
         return;
     if (choice === 'Open Camera (Python Native - Pro)') {

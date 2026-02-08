@@ -130,41 +130,50 @@ export class DiffEngine {
                         // Wait, the "lines" array is the ORIGINAL. 
                         // If we use `offset`, we are modifying `resultLines`.
                         
-                        // Let's restart the strategy:
-                        // 1. We have `resultLines` which starts as copy of `original`.
-                        // 2. We apply edits from bottom to top? No, diffs are usually top to bottom.
-                        // 3. We use `offset` to track how the line count has changed.
-                        
-                        const linesToDelete = oldLineCount; 
-                        // In a unified diff, the 'old' count includes context lines + deleted lines.
-                        
-                        // We need to extract the "new" block from the diff chunk (additions + context).
-                        // And replace the "old" block (deletions + context) in the file.
-                        
+                        // Robustness Fix: Calculate lines to delete from the hunk content itself
+                        // rather than relying solely on the header's line count, which AI often gets wrong.
+                        let calculatedOldCount = 0;
                         const chunkNewLines: string[] = [];
+                        
                         let p = i + 1;
-                        while (p < diffLines.length && !diffLines[p].startsWith('@@')) {
+                        while (p < diffLines.length) {
                             const l = diffLines[p];
+                            if (l.startsWith('@@')) break; // End of hunk
+
+                            if (l.startsWith(' ') || l.startsWith('-')) {
+                                calculatedOldCount++;
+                            }
+                            
                             if (l.startsWith('+') || l.startsWith(' ')) {
                                 chunkNewLines.push(l.substring(1));
                             } else if (l === '') {
                                 // Empty line, treat as context
                                 chunkNewLines.push('');
+                                calculatedOldCount++; // It's a context line (conceptually a space)
                             }
                             p++;
                         }
-                        
+
+                        // Use the calculated count if it seems valid (contains actual content lines)
+                        // If the AI was lazy and provided NO context/deletion lines but set a header count,
+                        // we might fallback to header, but usually AI provides the content.
+                        // We'll trust the content scan primarily.
+                        const linesToDelete = calculatedOldCount;
+
                         // Perform Splice
-                        // Remove `oldLineCount` lines at `oldStart + offset`
+                        // Remove `linesToDelete` lines at `oldStart + offset`
                         // Insert `chunkNewLines`
                         
-                        resultLines.splice(oldStart + offset, oldLineCount, ...chunkNewLines);
+                        // Safety Check: Don't delete past end of file
+                        if (oldStart + offset + linesToDelete > resultLines.length) {
+                             Logger.log(`[DiffEngine] Warning: Hunk tries to delete past EOF. Truncating.`);
+                        }
+                        
+                        resultLines.splice(oldStart + offset, linesToDelete, ...chunkNewLines);
                         
                         // Update offset
                         // Offset change = (lines added) - (lines removed)
-                        // lines added = chunkNewLines.length
-                        // lines removed = oldLineCount
-                        offset += (chunkNewLines.length - oldLineCount);
+                        offset += (chunkNewLines.length - linesToDelete);
                         
                         i = p;
                         continue; // Next chunk

@@ -67,10 +67,60 @@ class MJPEGHandler(http.server.BaseHTTPRequestHandler):
             else:
                 self.send_response(500)
                 self.end_headers()
+        elif self.path == '/start_record':
+            import tempfile
+            import os
+            
+            # Start Recording
+            try:
+                tmp_filename = os.path.join(tempfile.gettempdir(), f'aria_video_{int(time.time())}.mp4')
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                # 640x480 is what we set in start_camera
+                server.video_writer = cv2.VideoWriter(tmp_filename, fourcc, 20.0, (640, 480))
+                server.video_file = tmp_filename
+                server.recording = True
+                
+                print(f"DEBUG: Recording started to {tmp_filename}")
+                sys.stdout.flush()
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True}).encode('utf-8'))
+            except Exception as e:
+                print(f"DEBUG: Start record failed: {e}")
+                sys.stdout.flush()
+                self.send_response(500)
+                self.end_headers()
+
+        elif self.path == '/stop_record':
+            # Stop Recording
+            server.recording = False
+            time.sleep(0.5) # Wait for last frame
+            
+            if server.video_writer:
+                server.video_writer.release()
+                server.video_writer = None
+            
+            # Notify Extension
+            if hasattr(server, 'video_file'):
+                print(f"VIDEO_FILE:{server.video_file}")
+                sys.stdout.flush()
+            
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True}).encode('utf-8'))
+            
+            # Signal to shut down
+            threading.Timer(0.5, server.shutdown).start()
 
 class StreamingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     latest_frame = None
     daemon_threads = True
+    recording = False
+    video_writer = None
+    video_file = None
 
 def start_camera(server):
     cap = cv2.VideoCapture(CAM_INDEX, cv2.CAP_DSHOW) # CAP_DSHOW for faster Windows startup
@@ -83,6 +133,11 @@ def start_camera(server):
         if ret:
             # Resize for performance
             frame = cv2.resize(frame, (640, 480))
+            
+            # Record if active
+            if server.recording and server.video_writer:
+                server.video_writer.write(frame)
+
             # Encode to JPEG
             ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
             if ret:

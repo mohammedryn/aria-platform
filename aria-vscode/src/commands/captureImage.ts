@@ -7,7 +7,7 @@ import { CameraBridge } from '../vision/cameraBridge';
 export async function captureImage() {
     const choice = await vscode.window.showQuickPick(
         ['Open Camera (Python Native - Pro)', 'Open Camera (External Browser)', 'Select Image File...'],
-        { placeHolder: 'How do you want to provide the hardware image?' }
+        { placeHolder: 'How do you want to capture hardware data?' }
     );
 
     if (!choice) return;

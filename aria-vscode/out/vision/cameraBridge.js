@@ -297,6 +297,67 @@ class CameraBridge {
     }
     // Legacy HTML getter removed for brevity, new driver handles both ideally but we keep it simple
     static _getHtml(mode) { return ""; } // Unused in new logic
+    static async recordVideo(onServerReady) {
+        this._latestFrame = null;
+        this._streamClients = [];
+        this._killPython();
+        return new Promise((resolve, reject) => {
+            const scriptPath = path.join(__dirname, '../../src/scripts/camera_server.py');
+            logger_1.Logger.log(`[CameraBridge] Launching Python Bridge (Video): ${scriptPath}`);
+            this._pythonProcess = cp.spawn('python', [scriptPath]);
+            let serverUrl = '';
+            this._pythonProcess.stdout?.on('data', (data) => {
+                const output = data.toString();
+                const lines = output.split(/\r?\n/);
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (trimmed.includes('Server started on port')) {
+                        const port = trimmed.split(' ').pop();
+                        serverUrl = `http://127.0.0.1:${port}`;
+                        logger_1.Logger.log(`[CameraBridge-Py] Bridge Ready at ${serverUrl}`);
+                        if (onServerReady)
+                            onServerReady(serverUrl);
+                    }
+                    if (trimmed.includes('VIDEO_FILE:')) {
+                        const filePath = trimmed.split('VIDEO_FILE:')[1].trim();
+                        logger_1.Logger.log(`[CameraBridge-Py] Video file reported: ${filePath}`);
+                        this._killPython();
+                        resolve(filePath);
+                    }
+                }
+            });
+            this._pythonProcess.stderr?.on('data', (data) => {
+                logger_1.Logger.log(`[CameraBridge-Py Error] ${data.toString()}`);
+            });
+        });
+    }
+    static triggerStartRecord(url) {
+        this._postRequest(url, '/start_record');
+    }
+    static triggerStopRecord(url) {
+        this._postRequest(url, '/stop_record');
+    }
+    static _postRequest(baseUrl, path) {
+        try {
+            const u = new URL(baseUrl + path);
+            const options = {
+                hostname: u.hostname,
+                port: u.port,
+                path: u.pathname,
+                method: 'POST'
+            };
+            const req = http.request(options, (res) => {
+                res.resume();
+            });
+            req.on('error', (e) => {
+                logger_1.Logger.log(`[CameraBridge] Error triggering ${path}: ${e}`);
+            });
+            req.end();
+        }
+        catch (e) {
+            logger_1.Logger.log(`[CameraBridge] Invalid URL for POST: ${e}`);
+        }
+    }
 }
 exports.CameraBridge = CameraBridge;
 CameraBridge._server = null;

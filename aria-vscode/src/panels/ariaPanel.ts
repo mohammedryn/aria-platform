@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { ChatManager } from '../chat/chatManager';
 import { Logger } from '../utils/logger';
 import { DiffEngine } from '../utils/diffEngine';
 import { getLastActiveEditor } from '../utils/editorContext';
@@ -10,8 +11,10 @@ import { VisionClient, VisionResult } from '../vision/visionClient';
 import { GeminiClient } from '../ai/geminiClient';
 import { HardwareContext } from '../context/hardwareContext';
 import { runBuild, runFlash } from '../commands/buildAndFlash';
+import { PlatformIOManager } from '../firmware/platformioManager';
 import { SerialManager } from '../serial/serialManager';
 import { AnalysisInput, SerialAnalysisResult } from '../ai/types';
+import { CameraBridge } from '../vision/cameraBridge';
 
 export class AriaPanel {
     public static currentPanel: AriaPanel | undefined;
@@ -19,7 +22,13 @@ export class AriaPanel {
     private readonly _extensionUri: vscode.Uri;
     private _disposables: vscode.Disposable[] = [];
     private _currentVisionResult: VisionResult | null = null;
+    private _currentVisionImage: string | null = null;
+    private _visionReferenceActive: boolean = false;
     private _lastAnalyzedPath: string | null = null;
+    
+    // Video State
+    private _currentVideoPath: string | undefined;
+    private _currentVideoUri: string | undefined;
 
     public get visionResult(): VisionResult | null {
         return this._currentVisionResult;
@@ -43,9 +52,50 @@ export class AriaPanel {
         });
     }
 
-    private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
+    public async startVideoCapture() {
+        try {
+            const videoPath = await CameraBridge.recordVideo((url) => {
+                this._panel.webview.postMessage({ 
+                    command: 'showStream', 
+                    url: url,
+                    mode: 'video' 
+                });
+            });
+
+            if (videoPath) {
+                await this.processVideo(videoPath);
+            }
+        } catch (e) {
+            vscode.window.showErrorMessage("Video Capture Error: " + e);
+        }
+    }
+
+    public async processVideo(filePath: string) {
+        this._currentVideoPath = filePath;
+        // Notify UI
+        this._panel.webview.postMessage({
+            type: 'videoSelected',
+            filename: path.basename(filePath)
+        });
+
+        // Start Upload
+        await this._uploadVideo(filePath);
+    }
+
+    private readonly _chatManager: ChatManager;
+
+    private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
         this._panel = panel;
         this._extensionUri = extensionUri;
+        this._chatManager = new ChatManager(context);
+        
+        // Initialize Session
+        const sessions = this._chatManager.getSessions();
+        if (sessions.length > 0) {
+            this._chatManager.setCurrentSession(sessions[0].id);
+        } else {
+            this._chatManager.createSession();
+        }
 
         // Set the webview's initial html content
         this._update();
@@ -92,8 +142,35 @@ export class AriaPanel {
                     case 'openSimulation':
                         this._handleOpenSimulation(message.workspaceRoot);
                         return;
+                    case 'startRecording':
+                        if (message.url) CameraBridge.triggerStartRecord(message.url);
+                        return;
+                    case 'stopRecording':
+                        if (message.url) CameraBridge.triggerStopRecord(message.url);
+                        return;
                     case 'analyzeImage':
                         this.analyzeImage(message.base64);
+                        return;
+                    case 'selectVideo':
+                        this._handleSelectVideo();
+                        return;
+                    case 'analyzeVideo':
+                        this._handleAnalyzeVideo();
+                        return;
+                    case 'discardVideo':
+                        this._handleDiscardVideo();
+                        return;
+                    case 'getHistory':
+                        this._handleGetHistory();
+                        return;
+                    case 'loadSession':
+                        this._handleLoadSession(message.sessionId);
+                        return;
+                    case 'newChat':
+                        this._handleNewChat();
+                        return;
+                    case 'deleteChat':
+                        this._handleDeleteChat(message.sessionId);
                         return;
                     case 'triggerCapture':
                         if (message.url) {
@@ -113,7 +190,18 @@ export class AriaPanel {
                         return;
                     case 'discardVision':
                         this._currentVisionResult = null;
+                        this._currentVisionImage = null;
+                        this._visionReferenceActive = false;
                         Logger.log("[A.R.I.A] Vision context discarded by user.");
+                        return;
+                    case 'useVisionReference':
+                        this._visionReferenceActive = message.state !== false; // Default to true if undefined
+                        if (this._visionReferenceActive) {
+                            Logger.log("[A.R.I.A] Vision context enabled for next chat.");
+                            vscode.window.showInformationMessage("A.R.I.A: Vision Context Active. Type your question in the chat.");
+                        } else {
+                            Logger.log("[A.R.I.A] Vision context disabled.");
+                        }
                         return;
                     case 'buildFirmware':
                         runBuild();
@@ -127,6 +215,15 @@ export class AriaPanel {
                     case 'setModel':
                         this._handleSetModel(message.model);
                         return;
+                    case 'selectVideo':
+                        this._handleSelectVideo();
+                        return;
+                    case 'analyzeVideo':
+                        this._handleAnalyzeVideo();
+                        return;
+                    case 'discardVideo':
+                        this._handleDiscardVideo();
+                        return;
                 }
             },
             null,
@@ -134,8 +231,9 @@ export class AriaPanel {
         );
     }
 
-    public static createOrShow(extensionUri: vscode.Uri) {
+    public static createOrShow(context: vscode.ExtensionContext) {
         const column = vscode.ViewColumn.Beside; 
+        const extensionUri = context.extensionUri;
 
         // If we already have a panel, show it.
         if (AriaPanel.currentPanel) {
@@ -158,13 +256,22 @@ export class AriaPanel {
             }
         );
 
-        AriaPanel.currentPanel = new AriaPanel(panel, extensionUri);
+        AriaPanel.currentPanel = new AriaPanel(panel, extensionUri, context);
     }
 
     public static postMessage(message: any) {
         if (AriaPanel.currentPanel) {
-            if (message?.type === 'showAnalysis' && message?.metadata?.filePath) {
-                AriaPanel.currentPanel._lastAnalyzedPath = message.metadata.filePath;
+            // Update last analyzed path from metadata if present (for both analysis and chat results)
+            if (message?.type === 'showAnalysis' || message?.type === 'addResult') {
+                if (message?.metadata?.fullPath) {
+                    AriaPanel.currentPanel._lastAnalyzedPath = message.metadata.fullPath;
+                } else if (message?.metadata?.filePath) {
+                    AriaPanel.currentPanel._lastAnalyzedPath = message.metadata.filePath;
+                }
+            }
+            // If this is an analysis result, save it to history
+            if (message?.type === 'showAnalysis' || message?.type === 'addResult' || message?.type === 'visionResult') {
+                AriaPanel.currentPanel._saveAssistantMessage(message);
             }
             AriaPanel.currentPanel._panel.webview.postMessage(message);
         }
@@ -328,9 +435,12 @@ export class AriaPanel {
 
     private async _applyDiff(diff: string): Promise<boolean> {
         const targetUri = (await this._resolveTargetFromDiff(diff)) ?? (await this._getFallbackTargetUri());
+        Logger.log(`[A.R.I.A] ApplyDiff Target: ${targetUri?.fsPath ?? 'undefined'}`);
+        
         const editor = getLastActiveEditor();
         const document = targetUri ? await vscode.workspace.openTextDocument(targetUri) : editor?.document;
         if (!document) {
+            Logger.log(`[A.R.I.A] ApplyDiff Failed: No document found.`);
             return false;
         }
 
@@ -339,14 +449,23 @@ export class AriaPanel {
 
         // CHECK: Is this a Unified Diff or Full Content?
         if (this._isValidUnifiedDiff(diff)) {
+            Logger.log(`[A.R.I.A] Applying Unified Diff...`);
             const patched = DiffEngine.applyPatch(originalText, diff);
-            if (patched === null) return false;
+            if (patched === null) {
+                Logger.log(`[A.R.I.A] ApplyDiff Failed: Patching returned null.`);
+                return false;
+            }
             newText = patched;
         } else {
             // Assume Full Content Rewrite
+            Logger.log(`[A.R.I.A] Applying Full Rewrite (${diff.length} bytes)...`);
             // Basic safety check: Ensure it's not empty and looks like code
-            if (diff.length < 10) return false;
-            newText = diff;
+            if (diff.length < 10) {
+                Logger.log(`[A.R.I.A] ApplyDiff Failed: Content too short.`);
+                return false;
+            }
+            // Strip diff headers if present (used for targeting but not part of content)
+            newText = diff.replace(/^---\s+[^\r\n]+[\r\n]+\+\+\+\s+[^\r\n]+[\r\n]+/, '');
         }
 
         const fullRange = new vscode.Range(
@@ -360,6 +479,9 @@ export class AriaPanel {
         const success = await vscode.workspace.applyEdit(edit);
         if (success) {
             await document.save();
+            Logger.log(`[A.R.I.A] ApplyDiff Success.`);
+        } else {
+            Logger.log(`[A.R.I.A] ApplyDiff Failed: WorkspaceEdit declined.`);
         }
         return success;
     }
@@ -572,6 +694,101 @@ export class AriaPanel {
         }
     }
 
+    private async _handleSelectVideo() {
+        const options: vscode.OpenDialogOptions = {
+            canSelectMany: false,
+            openLabel: 'Select Video',
+            filters: {
+                'Videos': ['mp4', 'mov', 'avi', 'webm', 'mpeg', 'mpg']
+            }
+        };
+
+        const fileUri = await vscode.window.showOpenDialog(options);
+        if (!fileUri || fileUri.length === 0) {
+            return;
+        }
+
+        const filePath = fileUri[0].fsPath;
+        this._currentVideoPath = filePath;
+        const filename = path.basename(filePath);
+
+        // Notify UI
+        this._panel.webview.postMessage({
+            type: 'videoSelected',
+            filename: filename
+        });
+
+        // Start Upload in background
+        this._uploadVideo(filePath);
+    }
+
+    private async _uploadVideo(filePath: string) {
+        try {
+            // Determine mime type
+            const ext = path.extname(filePath).toLowerCase();
+            let mime = 'video/mp4';
+            if (ext === '.mov') mime = 'video/quicktime';
+            if (ext === '.avi') mime = 'video/x-msvideo';
+            if (ext === '.webm') mime = 'video/webm';
+            if (ext === '.mpeg' || ext === '.mpg') mime = 'video/mpeg';
+
+            this._panel.webview.postMessage({ type: 'videoStatus', status: 'Uploading to Gemini...', ready: false });
+            
+            const uri = await GeminiClient.uploadFile(filePath, mime);
+            this._currentVideoUri = uri;
+
+            this._panel.webview.postMessage({ type: 'videoStatus', status: 'Processing video...', ready: false });
+
+            // Wait for active
+            await GeminiClient.waitForFileActive(uri);
+
+            this._panel.webview.postMessage({ type: 'videoStatus', status: 'Ready to Analyze', ready: true });
+        } catch (e) {
+            Logger.log(`[A.R.I.A] Video upload error: ${e}`);
+            this._panel.webview.postMessage({ type: 'videoStatus', status: 'Upload Failed. Check logs.', error: true, ready: false });
+        }
+    }
+
+    private async _handleAnalyzeVideo() {
+        if (!this._currentVideoUri) {
+            vscode.window.showErrorMessage("Video not ready yet.");
+            return;
+        }
+        
+        // Show loading in main chat
+        this._panel.webview.postMessage({ type: 'analysisLoading', message: 'Analyzing video (Gemini 3 Pro)...' });
+
+        try {
+            const ext = path.extname(this._currentVideoPath || "").toLowerCase();
+            let mime = 'video/mp4';
+            if (ext === '.mov') mime = 'video/quicktime';
+            if (ext === '.avi') mime = 'video/x-msvideo';
+            if (ext === '.webm') mime = 'video/webm';
+
+            const result = await GeminiClient.analyzeVideo(this._currentVideoUri, mime, "Analyze this video. The user is describing a hardware issue. Identify the board, check the wiring against standard protocols, and explain why it might not be working based on the visual and audio evidence.");
+            
+            this._panel.webview.postMessage({
+                type: 'showAnalysis',
+                data: result,
+                metadata: {
+                    source: 'video-analysis',
+                    filePath: this._currentVideoPath,
+                    model: 'gemini-3-pro-preview'
+                }
+            });
+        } catch (e) {
+            this._panel.webview.postMessage({ 
+                type: 'analysisError', 
+                error: `Video analysis failed: ${e instanceof Error ? e.message : String(e)}` 
+            });
+        }
+    }
+
+    private _handleDiscardVideo() {
+        this._currentVideoPath = undefined;
+        this._currentVideoUri = undefined;
+    }
+
     private async _handleOpenSimulation(workspaceRoot: string) {
         const diagramPath = path.join(workspaceRoot, '.wokwi', 'diagram.json');
         const uri = vscode.Uri.file(diagramPath);
@@ -613,14 +830,106 @@ export class AriaPanel {
         }
     }
 
-    private _handleCommand(text: string) {
+    private async _handleInitProject(boardHint: string) {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            this._panel.webview.postMessage({ type: 'analysisError', error: "Error: No workspace open. Please open a folder first." });
+            return;
+        }
+        const root = workspaceFolders[0].uri.fsPath;
+        let board = boardHint.trim();
+
+        if (!board) {
+             board = await vscode.window.showInputBox({
+                 prompt: "Enter PlatformIO Board ID (e.g., teensy41, uno, esp32dev)",
+                 placeHolder: "teensy41"
+             }) || "";
+        }
+
+        if (!board) {
+             this._panel.webview.postMessage({ type: 'addResult', text: "PlatformIO setup cancelled: No board specified." });
+             return;
+        }
+
+        this._panel.webview.postMessage({ type: 'analysisLoading', message: `Initializing PlatformIO for ${board}...` });
+        
+        const success = await PlatformIOManager.initProject(board, root);
+        if (success) {
+             this._panel.webview.postMessage({ type: 'addResult', text: `<b>PlatformIO Initialized!</b><br>Board: ${board}<br>Framework: Arduino<br>Verifying build...` });
+             
+             // Run Build to verify
+             const buildResult = await PlatformIOManager.buildFirmware(root);
+             if (buildResult.success) {
+                  this._panel.webview.postMessage({ type: 'successMessage', text: `<strong>✅ Ready to Flash!</strong><br>Project initialized and built successfully.` });
+             } else {
+                  this._panel.webview.postMessage({ type: 'analysisError', error: `Project initialized but build failed. See Output Channel for details.` });
+             }
+        } else {
+             this._panel.webview.postMessage({ type: 'analysisError', error: "PlatformIO Init Failed. Check logs." });
+        }
+    }
+
+    private async _handleCommand(text: string) {
         Logger.log(`User command: ${text}`);
+
+        // Save to history
+        this._saveUserMessage(text);
+
+        // Vision Context Chat (if active and image exists)
+        if (this._visionReferenceActive && this._currentVisionImage && !text.startsWith('/')) {
+            this._panel.webview.postMessage({ type: 'analysisLoading', message: 'Analyzing image with Gemini 3 Pro...' });
+            try {
+                const result = await GeminiClient.chatWithImage(this._currentVisionImage, text);
+                
+                // Show result using standard analysis display
+                this._panel.webview.postMessage({
+                    type: 'showAnalysis',
+                    data: result,
+                    metadata: {
+                        source: 'vision-chat',
+                        model: 'gemini-3-pro-image-preview'
+                    }
+                });
+            } catch (e) {
+                 this._panel.webview.postMessage({ type: 'analysisError', error: String(e) });
+            }
+            return;
+        }
+
+        // Video Context Chat (if active and video URI exists)
+        if (this._currentVideoUri && !text.startsWith('/')) {
+            this._panel.webview.postMessage({ type: 'analysisLoading', message: 'Analyzing video with your command...' });
+            try {
+                const ext = path.extname(this._currentVideoPath || "").toLowerCase();
+                let mime = 'video/mp4';
+                if (ext === '.mov') mime = 'video/quicktime';
+                if (ext === '.avi') mime = 'video/x-msvideo';
+                if (ext === '.webm') mime = 'video/webm';
+                if (ext === '.mpeg' || ext === '.mpg') mime = 'video/mpeg';
+
+                const result = await GeminiClient.analyzeVideo(this._currentVideoUri, mime, text);
+                
+                this._panel.webview.postMessage({
+                    type: 'showAnalysis',
+                    data: result,
+                    metadata: {
+                        source: 'video-chat',
+                        filePath: this._currentVideoPath,
+                        model: 'gemini-3-pro-preview'
+                    }
+                });
+            } catch (e) {
+                this._panel.webview.postMessage({ type: 'analysisError', error: String(e) });
+            }
+            return;
+        }
+
         let response = "";
         if (text.startsWith('/')) {
             const cmd = text.split(' ')[0].toLowerCase();
             switch (cmd) {
                 case '/help':
-                    response = "<b>Available Commands:</b><br><code>/analyze</code> - Analyze current file<br><code>/selection</code> - Analyze selected code<br><code>/workspace</code> - Analyze entire workspace<br><code>/validate</code> - Validate Hardware & Simulate";
+                    response = "<b>Available Commands:</b><br><code>/analyze</code> - Analyze current file<br><code>/selection</code> - Analyze selected code<br><code>/workspace</code> - Analyze entire workspace<br><code>/validate</code> - Validate Hardware & Simulate<br><code>/capture</code> - Capture Image<br><code>/video</code> - Capture Video<br><code>/fault</code> - Explain Bare Metal Faults";
                     this._panel.webview.postMessage({ type: 'addResult', text: response });
                     break;
                 case '/analyze':
@@ -638,13 +947,101 @@ export class AriaPanel {
                 case '/capture':
                     vscode.commands.executeCommand('aria.captureImage');
                     break;
+                case '/video':
+                    vscode.commands.executeCommand('aria.captureVideo');
+                    break;
+                case '/fault':
+                    this._panel.webview.postMessage({ type: 'addResult', text: "<b>Bare Metal Fault Analysis</b><br>Paste your error registers (e.g. <code>HFSR: 0x40000000</code>) or ask <i>'What is a Bus Fault?'</i> directly in the chat." });
+                    break;
+                case '/clear':
+                    this._visionReferenceActive = false;
+                    this._currentVisionImage = null;
+                    this._currentVideoUri = undefined;
+                    this._panel.webview.postMessage({ type: 'clearContext' });
+                    this._panel.webview.postMessage({ type: 'addResult', text: "<i>Context cleared. Vision/Video references removed.</i>" });
+                    break;
+                case '/init':
+                    // Parse arguments from text (e.g. "/init teensy41")
+                    const args = text.split(/\s+/).slice(1);
+                    const board = args[0] || ""; 
+                    await this._handleInitProject(board);
+                    break;
                 default:
                     response = `Unknown command: ${cmd}`;
                     this._panel.webview.postMessage({ type: 'addResult', text: response });
             }
         } else {
-            response = `A.R.I.A. is a command-based system. Type <code>/help</code> for options.`;
-            this._panel.webview.postMessage({ type: 'addResult', text: response });
+            // Check for natural language PIO setup intent
+            // Matches "setup platformio for teensy41" or "set platformio..."
+            const pioMatch = text.match(/(?:setup|set)\s+platformio.*?(?:board|for)\s+([a-zA-Z0-9_-]+)/i) ||
+                             (text.toLowerCase().match(/(?:setup|set)\s+platformio/) ? [text, ""] : null);
+            
+            if (pioMatch) {
+                let board = pioMatch[1]?.trim() || "";
+                // Filter out common false positives from loose grammar
+                if (board.length < 3 || ['in', 'this', 'here', 'folder'].includes(board.toLowerCase())) {
+                    board = "";
+                }
+                await this._handleInitProject(board);
+                return;
+            }
+
+            // New: Route general queries to GeminiClient.chat()
+            this._panel.webview.postMessage({ type: 'analysisLoading', message: 'Processing your question...' });
+            try {
+                // Inject context (active file, hardware)
+                let activeEditor = getLastActiveEditor();
+                if (!activeEditor && vscode.window.visibleTextEditors.length > 0) {
+                    activeEditor = vscode.window.visibleTextEditors[0];
+                }
+
+                if (activeEditor) {
+                    // Update last analyzed path so fallback logic works for rewrites
+                    this._lastAnalyzedPath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+                }
+
+                const context: any = {
+                    code: activeEditor?.document.getText(),
+                    language: activeEditor?.document.languageId,
+                    filePath: activeEditor?.document.uri.fsPath,
+                    hardwareContext: await HardwareContext.scan().then(hw => hw.summary)
+                };
+
+                // SPECIAL HANDLING: PlatformIO Configuration Context
+                // If the user wants to change board/config, we MUST inject platformio.ini content
+                // because the active file is likely main.cpp or something else.
+                const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                if (root) {
+                    const pioPath = path.join(root, 'platformio.ini');
+                    if (fs.existsSync(pioPath)) {
+                        try {
+                            const pioContent = fs.readFileSync(pioPath, 'utf8');
+                            // Append to code context or hardware context?
+                            // Let's create a dedicated 'projectConfig' field in context or append to hardwareContext
+                            // Appending to hardwareContext is safest for now as it gets rendered into the prompt
+                            context.hardwareContext += `\n\n[Active platformio.ini Configuration]:\n${pioContent}\n(You can edit this file using a Unified Diff if requested)`;
+                            context.pioConfig = pioContent; // For specialized prompt logic if needed
+                        } catch (e) {
+                             Logger.log(`[A.R.I.A] Failed to read platformio.ini for context: ${e}`);
+                        }
+                    }
+                }
+
+                const result = await GeminiClient.chat(text, context);
+                this._panel.webview.postMessage({
+                    type: 'showAnalysis',
+                    data: result,
+                    metadata: {
+                        source: 'general-chat',
+                        filePath: context.filePath ? path.basename(context.filePath) : "General Chat",
+                        fullPath: context.filePath, // Preserve full path for target resolution
+                        hardware: context.hardwareContext ? "Detected" : "None",
+                        model: 'gemini-3-pro-preview'
+                    }
+                });
+            } catch (e) {
+                this._panel.webview.postMessage({ type: 'analysisError', error: String(e) });
+            }
         }
     }
 
@@ -655,6 +1052,7 @@ export class AriaPanel {
 
             const result = await VisionClient.analyze(base64Image);
             this._currentVisionResult = result;
+            this._currentVisionImage = base64Image;
 
             // Context Comparison
             const editor = getLastActiveEditor();
@@ -695,5 +1093,43 @@ export class AriaPanel {
             Logger.log(`[A.R.I.A] Vision handling error: ${e}`);
             vscode.window.showErrorMessage(`A.R.I.A: Vision analysis failed: ${e}`);
         }
+    }
+
+    private _saveUserMessage(text: string) {
+        const sessionId = this._chatManager.getCurrentSessionId();
+        if (sessionId) {
+            this._chatManager.addMessage(sessionId, 'user', text);
+        }
+    }
+
+    private _saveAssistantMessage(message: any) {
+        const sessionId = this._chatManager.getCurrentSessionId();
+        if (sessionId) {
+            // We store the full message object as metadata so we can replay it exactly
+            this._chatManager.addMessage(sessionId, 'assistant', '', message);
+        }
+    }
+
+    private _handleGetHistory() {
+        const sessions = this._chatManager.getSessions();
+        this._panel.webview.postMessage({ type: 'historyList', sessions });
+    }
+
+    private _handleLoadSession(sessionId: string) {
+        const session = this._chatManager.getSession(sessionId);
+        if (session) {
+            this._chatManager.setCurrentSession(sessionId);
+            this._panel.webview.postMessage({ type: 'loadChat', session });
+        }
+    }
+
+    private _handleNewChat() {
+        const session = this._chatManager.createSession();
+        this._panel.webview.postMessage({ type: 'loadChat', session });
+    }
+
+    private _handleDeleteChat(sessionId: string) {
+        this._chatManager.deleteSession(sessionId);
+        this._handleGetHistory();
     }
 }

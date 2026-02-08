@@ -4,5 +4,5 @@ import { Logger } from '../utils/logger';
 
 export function openPanel(context: vscode.ExtensionContext) {
     Logger.log("Executing command: Open Copilot Panel");
-    AriaPanel.createOrShow(context.extensionUri);
+    AriaPanel.createOrShow(context);
 }

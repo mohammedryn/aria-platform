@@ -3,6 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PlatformIOManager = void 0;
 const vscode = require("vscode");
 const cp = require("child_process");
+const path = require("path");
+const fs = require("fs");
 const logger_1 = require("../utils/logger");
 class PlatformIOManager {
     static get isBusy() { return this._isBusy; }
@@ -20,8 +22,11 @@ class PlatformIOManager {
     static async initProject(board, workspaceRoot) {
         return new Promise((resolve) => {
             logger_1.Logger.log(`[PlatformIO] Initializing project for board: ${board}...`);
-            const cmd = `pio project init --board ${board}`;
-            cp.exec(cmd, { cwd: workspaceRoot }, (err, stdout, stderr) => {
+            // Use --project-option to set framework to arduino by default if not specified? 
+            // Usually init --board implies a default framework, but explicit is better.
+            // Let's stick to standard init for now.
+            const cmd = `pio project init --board ${board} --project-option "framework=arduino"`;
+            cp.exec(cmd, { cwd: workspaceRoot }, async (err, stdout, stderr) => {
                 if (err) {
                     logger_1.Logger.log(`[PlatformIO] Init failed: ${stderr}`);
                     vscode.window.showErrorMessage(`PlatformIO Init Failed: ${stderr}`);
@@ -29,6 +34,42 @@ class PlatformIOManager {
                 }
                 else {
                     logger_1.Logger.log(`[PlatformIO] Project initialized successfully.`);
+                    // Ensure src/main.cpp exists
+                    const srcDir = path.join(workspaceRoot, 'src');
+                    const mainCpp = path.join(srcDir, 'main.cpp');
+                    if (!fs.existsSync(mainCpp)) {
+                        logger_1.Logger.log(`[PlatformIO] Creating default main.cpp...`);
+                        const defaultCode = `#include <Arduino.h>
+
+void setup() {
+  // Initialize LED_BUILTIN as an output
+  pinMode(LED_BUILTIN, OUTPUT);
+  Serial.begin(9600);
+  Serial.println("PlatformIO Project Initialized by A.R.I.A");
+}
+
+void loop() {
+  digitalWrite(LED_BUILTIN, HIGH);  // turn the LED on (HIGH is the voltage level)
+  delay(1000);                      // wait for a second
+  digitalWrite(LED_BUILTIN, LOW);   // turn the LED off by making the voltage LOW
+  delay(1000);                      // wait for a second
+}
+`;
+                        try {
+                            if (!fs.existsSync(srcDir))
+                                fs.mkdirSync(srcDir, { recursive: true });
+                            fs.writeFileSync(mainCpp, defaultCode);
+                        }
+                        catch (e) {
+                            logger_1.Logger.log(`[PlatformIO] Failed to create main.cpp: ${e}`);
+                        }
+                    }
+                    // Open platformio.ini to show success
+                    const pioIni = path.join(workspaceRoot, 'platformio.ini');
+                    if (fs.existsSync(pioIni)) {
+                        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(pioIni));
+                        await vscode.window.showTextDocument(doc);
+                    }
                     resolve(true);
                 }
             });

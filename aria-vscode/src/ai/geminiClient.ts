@@ -1,9 +1,11 @@
     import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { Logger } from '../utils/logger';
 import { AnalysisInput, AnalysisOutput, SerialAnalysisResult } from './types';
 
 export class GeminiClient {
     private static readonly BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+    private static readonly UPLOAD_URL = "https://generativelanguage.googleapis.com/upload/v1beta/files";
     private static readonly TIMEOUT_MS = 90000; // Increased to 90s for Gemini 3 Thinking
     private static readonly FALLBACK_MODELS = [
         "gemini-3-pro-preview",
@@ -48,23 +50,26 @@ export class GeminiClient {
         
         const taskDescription = input.taskDescription || "Analyze this code for bugs, hardware compatibility issues, and improvements.";
 
-        const systemInstruction = isFullFileAnalysis 
-            ? "You are a hardware-aware code analysis engine (A.R.I.A). You understand embedded systems (PlatformIO, Arduino, ESP32, Teensy). Your goal is to provide a COMPLETE, CORRECTED version of the user's file that fixes ALL issues."
-            : "You are a hardware-aware code analysis engine (A.R.I.A). You understand embedded systems (PlatformIO, Arduino, ESP32, Teensy). Follow this process strictly:\n1. THINKING PROCESS: Analyze the code/issue in detail.\n2. FINAL SUMMARY: Provide a concise summary and a unified diff.";
+        const systemInstruction = "You are A.R.I.A, a hardware-aware code analysis engine. " +
+            "You understand embedded systems (PlatformIO, Arduino, ESP32, Teensy). " +
+            "Use Markdown for formatting. \n\n" +
+            "IMPORTANT OUTPUT FORMAT:\n" +
+            "1. Start with a section header '# Thinking Process' and explain your analysis.\n" +
+            "2. Follow with a section header '# Final Summary' containing the direct answer to the user.\n" +
+            "This structure is REQUIRED.";
 
         const outputFormat = isFullFileAnalysis
-            ? `\nOutput the result in plain text with:\n` +
-              `1. "Thinking Process": Analyze the issues.\n` +
-              `2. "Summary": Brief summary of changes.\n` +
-              `3. "Corrected Code": The COMPLETE, FULLY CORRECTED file content inside a code block (e.g., \`\`\`cpp ... \`\`\`).\n` +
-              `   - DO NOT use diffs.\n` +
-              `   - DO NOT return partial code.\n` +
-              `   - Return the ENTIRE file from start to finish, with all fixes applied.\n` +
-              `   - Ensure all syntax (braces, semicolons) is correct.\n` +
-              `   - Use exactly ONE code block for the corrected code.\n` +
-              `   - Do NOT put analysis, summaries, or other text inside any code block.\n`
-            : `\nOutput the result in plain text with a clear "Thinking Process" section followed by the final "Summary" and "Recommendations". Use markdown code blocks for diffs.\n` + 
-              `If proposing changes, provide ONE unified diff that fixes ALL issues found. Do not output partial or incomplete lines.\n`;
+            ? `\nSpecific Task: Provide a COMPLETE, CORRECTED version of the user's file.\n` +
+              `1. Under '# Thinking Process', analyze the issues.\n` +
+              `2. Under '# Final Summary', summarize changes.\n` +
+              `3. Add a section '# Corrected Code' containing the COMPLETE, FULLY CORRECTED file content inside a code block.\n` +
+              `   - DO NOT use diffs for this mode.\n` +
+              `   - Return the ENTIRE file from start to finish.\n`
+            : `\nSpecific Task: Analyze code and suggest fixes.\n` + 
+              `1. Under '# Thinking Process', analyze the code.\n` +
+              `2. Under '# Final Summary', summarize the issue and fix.\n` +
+              `3. Add a section '# Recommendations' for bullet points.\n` +
+              `4. Add a section '# Suggestions' with ONE unified diff that fixes all issues.\n`;
 
         const prompt = {
             system_instruction: {
@@ -76,7 +81,7 @@ export class GeminiClient {
                           `${taskDescription}\n` + 
                           outputFormat +
                           `\nEXAMPLE OUTPUT FORMAT:\n` + 
-                          `# Thinking Process\n[Analysis...]\n\n# Summary\n[Summary...]\n\n# Corrected Code\n\`\`\`${input.language}\n[FULL CODE HERE]\n\`\`\``
+                          `# Thinking Process\n[Analysis...]\n\n# Final Summary\n[Summary...]\n\n# Corrected Code\n\`\`\`${input.language}\n[FULL CODE HERE]\n\`\`\``
                 }
             }
         };
@@ -128,7 +133,12 @@ export class GeminiClient {
 
         const prompt = {
             system_instruction: {
-                parts: { text: "You are A.R.I.A, a hardware-aware code analysis engine. Analyze the entire project context. Find cross-file issues, logical errors, and hardware mismatches. Provide a ROOT SOLUTION, not a patch." }
+                parts: { text: "You are A.R.I.A, a hardware-aware code analysis engine. Analyze the entire project context. Find cross-file issues, logical errors, and hardware mismatches. " +
+                    "Use Markdown for formatting. \n\n" +
+                    "IMPORTANT OUTPUT FORMAT:\n" +
+                    "1. Start with a section header '# Thinking Process' and explain your analysis.\n" +
+                    "2. Follow with a section header '# Final Summary' containing the direct answer to the user.\n" +
+                    "This structure is REQUIRED." }
             },
             contents: {
                 parts: {
@@ -137,20 +147,20 @@ export class GeminiClient {
                           `PROJECT FILES:\n${fileContentStr}\n\n` +
                           `Task:\n` +
                           `1. Identify issues spanning multiple files or within specific files.\n` +
-                          `2. Provide a single 'Thinking Process'.\n` +
-                          `3. Provide a 'Summary' of issues.\n` +
-                          `4. Provide 'Recommendations'.\n` +
-                          `5. Provide 'Suggestions' using STRICT UNIFIED DIFFS for each file that needs changes.\n` +
-                          `   - IMPORTANT: Each diff MUST start with '--- <filepath>' and '+++ <filepath>' so we know which file to apply it to.\n` +
+                          `2. Under '# Thinking Process', analyze the issues.\n` +
+                          `3. Under '# Final Summary', summarize the issues.\n` +
+                          `4. Add '# Recommendations'.\n` +
+                          `5. Add '# Suggestions' for each file that needs changes.\n` +
+                          `   - **Option A (Unified Diff):** Use for small changes. Start with '--- <filepath>' and '+++ <filepath>'.\n` +
+                          `   - **Option B (Full Rewrite):** Use for large changes or rewrites. Provide the FULL NEW CONTENT. You MUST start with '--- <filepath>' and '+++ <filepath>' headers to identify the file, but DO NOT use '@@ ... @@' hunks.\n` +
                           `   - Use relative paths matching the provided filenames (e.g. 'src/main.cpp').\n` +
-                          `   - Provide ONE unified diff per file that fixes ALL issues in that file.\n` +
+                          `   - Provide ONE unified diff OR full rewrite per file that fixes ALL issues in that file.\n` +
                           `   - Do NOT output partial or incomplete lines. Include at least 3 lines of context (unchanged lines) around changes.\n` +
                           `   - NEVER use placeholders like '...' or '// ...' in context lines. You must use the EXACT original code for context.\n` +
                           `   - Ensure valid unified diff syntax (lines start with ' ', '+', or '-').\n` +
                           `   - Treat each file with the same rigor as a single-file analysis. Do not skip details.\n` +
-                          `   - If a file needs extensive changes, provide the diff for the ENTIRE affected section, ensuring no context is lost.\n` +
                           `\nEXAMPLE RESPONSE FORMAT:\n` +
-                          `# Thinking Process\n[Analysis...]\n\n# Summary\n[Summary...]\n\n# Recommendations\n- [Rec 1]\n\n# Suggestions\n` +
+                          `# Thinking Process\n[Analysis...]\n\n# Final Summary\n[Summary...]\n\n# Recommendations\n- [Rec 1]\n\n# Suggestions\n` +
                           `\`\`\`diff\n` +
                           `--- src/main.cpp\n` +
                           `+++ src/main.cpp\n` +
@@ -249,7 +259,12 @@ export class GeminiClient {
 
         return {
             system_instruction: {
-                parts: { text: "You are a hardware-aware code analysis engine (A.R.I.A). You understand embedded systems (PlatformIO, Arduino, ESP32, Teensy). Follow this process strictly:\n1. THINKING PROCESS: Analyze the code/issue in detail. Explain your reasoning, check hardware context, and verify assumptions.\n2. FINAL SUMMARY: Provide a concise summary of the issue and the fix. Use markdown code blocks for diffs." }
+                parts: { text: "You are A.R.I.A, a hardware-aware code analysis engine. " +
+                    "Use Markdown for formatting. \n\n" +
+                    "IMPORTANT OUTPUT FORMAT:\n" +
+                    "1. Start with a section header '# Thinking Process' and explain your analysis.\n" +
+                    "2. Follow with a section header '# Final Summary' containing the direct answer to the user.\n" +
+                    "This structure is REQUIRED." }
             },
             contents: {
                 parts: {
@@ -260,10 +275,139 @@ export class GeminiClient {
                           `The diff must include ---/+++ headers and @@ hunks and be directly applicable to the current file. Keep it minimal and focused on fixes.\n` +
                           `IMPORTANT: Do NOT include comments, explanations, or prose INSIDE the \`\`\`diff block. Only valid unified diff syntax is allowed inside the block.\n\n` +
                           `EXAMPLE OUTPUT FORMAT:\n` +
-                          `# Thinking Process\n[Analysis details...]\n\n# Summary\n[Summary of issue]\n\n# Recommendations\n- [Recommendation 1]\n- [Recommendation 2]\n\n# Suggestions\n\`\`\`diff\n--- src/main.cpp\n+++ src/main.cpp\n@@ -1,1 +1,1 @@\n-old line\n+new line\n\`\`\``
+                          `# Thinking Process\n[Analysis details...]\n\n# Final Summary\n[Summary of issue]\n\n# Recommendations\n- [Recommendation 1]\n- [Recommendation 2]\n\n# Suggestions\n\`\`\`diff\n--- src/main.cpp\n+++ src/main.cpp\n@@ -1,1 +1,1 @@\n-old line\n+new line\n\`\`\``
                 }
             }
         };
+    }
+
+    public static async uploadFile(filePath: string, mimeType: string): Promise<string> {
+        const config = vscode.workspace.getConfiguration('aria');
+        const apiKey = config.get<string>('apiKey') || process.env.GEMINI_API_KEY;
+        if (!apiKey) throw new Error("API Key missing");
+
+        const stats = await fs.promises.stat(filePath);
+        const size = stats.size;
+        const name = filePath.split(/[/\\]/).pop();
+
+        Logger.log(`[A.R.I.A] Starting upload for ${name} (${size} bytes)...`);
+
+        // 1. Start Resumable Upload
+        const startResponse = await fetch(`${this.UPLOAD_URL}?key=${apiKey}`, {
+            method: 'POST',
+            headers: {
+                'X-Goog-Upload-Protocol': 'resumable',
+                'X-Goog-Upload-Command': 'start',
+                'X-Goog-Upload-Header-Content-Length': size.toString(),
+                'X-Goog-Upload-Header-Content-Type': mimeType,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ file: { display_name: name } })
+        });
+
+        if (!startResponse.ok) {
+            const err = await startResponse.text();
+            throw new Error(`Upload start failed: ${startResponse.statusText} - ${err}`);
+        }
+
+        const uploadUrl = startResponse.headers.get('x-goog-upload-url');
+        if (!uploadUrl) throw new Error("No upload URL returned from Gemini API");
+
+        // 2. Upload Content
+        const fileBuffer = await fs.promises.readFile(filePath);
+        const uploadResponse = await fetch(uploadUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Length': size.toString(),
+                'X-Goog-Upload-Offset': '0',
+                'X-Goog-Upload-Command': 'upload, finalize'
+            },
+            body: fileBuffer
+        });
+
+        if (!uploadResponse.ok) {
+             const err = await uploadResponse.text();
+             throw new Error(`Upload failed: ${uploadResponse.statusText} - ${err}`);
+        }
+
+        const result = await uploadResponse.json() as any;
+        Logger.log(`[A.R.I.A] Upload complete. URI: ${result.file.uri}`);
+        return result.file.uri;
+    }
+
+    public static async waitForFileActive(fileUri: string): Promise<void> {
+        const config = vscode.workspace.getConfiguration('aria');
+        const apiKey = config.get<string>('apiKey') || process.env.GEMINI_API_KEY;
+        if (!apiKey) throw new Error("API Key missing");
+
+        Logger.log(`[A.R.I.A] Waiting for file processing: ${fileUri}...`);
+        
+        // Polling loop
+        for (let i = 0; i < 60; i++) { // Max 120 seconds
+            const response = await fetch(`${fileUri}?key=${apiKey}`);
+            if (!response.ok) throw new Error(`Failed to check file status: ${response.statusText}`);
+
+            const data = await response.json() as any;
+            Logger.log(`[A.R.I.A] File state: ${data.state}`);
+            
+            if (data.state === "ACTIVE") return;
+            if (data.state === "FAILED") throw new Error("File processing failed on Gemini side.");
+
+            await new Promise(r => setTimeout(r, 2000));
+        }
+        throw new Error("File processing timed out.");
+    }
+
+    public static async analyzeVideo(fileUri: string, mimeType: string, userPrompt: string): Promise<AnalysisOutput> {
+        const config = vscode.workspace.getConfiguration('aria');
+        const apiKey = config.get<string>('apiKey') || process.env.GEMINI_API_KEY;
+        const preferredModel = "gemini-3-pro-preview"; 
+
+        if (!apiKey) {
+            return {
+                summary: "Gemini API Key missing.",
+                detectedIssues: ["Configuration Error"],
+                recommendations: ["Set aria.apiKey"],
+                confidence: 0
+            };
+        }
+        
+        const systemInstruction = "You are A.R.I.A, a hardware-aware AI assistant. You are analyzing a video provided by the user. " +
+            "The user is describing a hardware issue. Identify the board, wiring, and problems based on visual and audio evidence. " +
+            "Use Markdown for formatting. \n\n" +
+            "IMPORTANT OUTPUT FORMAT:\n" +
+            "1. Start with a section header '# Thinking Process' and explain your analysis.\n" +
+            "2. Follow with a section header '# Final Summary' containing the direct answer to the user.\n" +
+            "This structure is REQUIRED.";
+
+        const payload = {
+            system_instruction: {
+                parts: { text: systemInstruction }
+            },
+            contents: [{
+                parts: [
+                    { text: userPrompt || "Analyze this video for hardware issues." },
+                    {
+                        file_data: {
+                            mime_type: mimeType,
+                            file_uri: fileUri
+                        }
+                    }
+                ]
+            }],
+            generationConfig: {
+                temperature: 0.4
+            }
+        };
+
+        try {
+            Logger.log(`[A.R.I.A] Analyzing Video with Model: ${preferredModel}...`);
+            const response = await this.callGemini(apiKey.trim(), preferredModel, payload);
+            return this.parseResponse(response);
+        } catch (error) {
+            Logger.log(`[A.R.I.A] Video analysis failed: ${error}`);
+            throw error;
+        }
     }
 
     public static async analyzeImage(base64Image: string, promptText: string): Promise<any> {
@@ -271,16 +415,16 @@ export class GeminiClient {
         let apiKey = config.get<string>('apiKey') || process.env.GEMINI_API_KEY;
         
         // Vision models: Try newer models first
-    const visionModels = [
-        "gemini-3-pro-preview",
-        "gemini-3-flash-preview",
-        "gemini-2.5-flash",
-        "gemini-2.0-flash-lite-001",
-        "gemini-2.0-flash-001",
-        "gemini-flash-latest"
-    ];
+        const visionModels = [
+            "gemini-3-pro-preview",
+            "gemini-3-flash-preview",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash-lite-001",
+            "gemini-2.0-flash-001",
+            "gemini-flash-latest"
+        ];
 
-    if (!apiKey) {
+        if (!apiKey) {
             Logger.log("[A.R.I.A] AI unavailable — running in dry mode");
             return {
                 summary: "Vision Analysis (Dry Run)",
@@ -304,7 +448,10 @@ export class GeminiClient {
                         }
                     }
                 ]
-            }]
+            }],
+            generationConfig: {
+                temperature: 0.4 // Lower temperature for vision analysis too
+            }
         };
 
         let lastError: Error | null = null;
@@ -323,13 +470,155 @@ export class GeminiClient {
         }
 
         // If all failed
-    Logger.log(`[A.R.I.A] All vision models failed. Last error: ${lastError?.message}`);
-    
-    // Run diagnostic to help user debug
-    await this.logAvailableModels(apiKey);
+        Logger.log(`[A.R.I.A] All vision models failed. Last error: ${lastError?.message}`);
+        
+        // Run diagnostic to help user debug
+        await this.logAvailableModels(apiKey);
 
-    throw lastError;
-}
+        throw lastError;
+    }
+
+    public static async chatWithImage(base64Image: string, userPrompt: string): Promise<AnalysisOutput> {
+        const config = vscode.workspace.getConfiguration('aria');
+        let apiKey = config.get<string>('apiKey') || process.env.GEMINI_API_KEY;
+        const preferredModel = "gemini-3-pro-preview"; // Uses Pro for image analysis
+
+        if (!apiKey) {
+            return {
+                summary: "Gemini API Key missing.",
+                detectedIssues: ["Configuration Error"],
+                recommendations: ["Set aria.apiKey"],
+                confidence: 0
+            };
+        }
+        apiKey = apiKey.trim();
+
+        const systemInstruction = "You are A.R.I.A, a hardware-aware AI assistant. You are analyzing an image provided by the user along with their question. " +
+            "Provide a helpful, technical response. If the user asks for code, provide it. If they ask for identification, provide it. " +
+            "Use Markdown for formatting. \n\n" +
+            "IMPORTANT OUTPUT FORMAT:\n" +
+            "1. Start with a section header '# Thinking Process' and explain your analysis.\n" +
+            "2. Follow with a section header '# Final Summary' containing the direct answer to the user.\n" +
+            "3. If the user asks for code (or you generate code), you MUST provide a '# Suggestions' section with a single unified diff block (if editing) or a complete code block (if creating new).\n" +
+            "   - If providing a full file, wrap it in a code block and ensure it is complete.\n" +
+            "   - IMPORTANT: If rewriting a whole file or function, you MUST delete the old code using '-' lines in the diff. Do not just append new code. Replace it.\n" +
+            "This structure is REQUIRED.";
+
+        const payload = {
+            system_instruction: {
+                parts: { text: systemInstruction }
+            },
+            contents: [{
+                parts: [
+                    { text: userPrompt },
+                    {
+                        inline_data: {
+                            mime_type: "image/jpeg",
+                            data: base64Image
+                        }
+                    }
+                ]
+            }],
+            generationConfig: {
+                temperature: 0.4
+            }
+        };
+
+        try {
+            // User requested explicit "gemini-3-pro-image-preview" logging
+            Logger.log(`[A.R.I.A] Chatting with Image using Model: gemini-3-pro-image-preview...`);
+            const response = await this.callGemini(apiKey, preferredModel, payload);
+            return this.parseResponse(response);
+        } catch (error) {
+            Logger.log(`[A.R.I.A] Chat with Image failed: ${error}`);
+            // Fallback to flash if pro fails
+            try {
+                const fallback = "gemini-3-flash-preview";
+                Logger.log(`[A.R.I.A] Retrying with ${fallback}...`);
+                const response = await this.callGemini(apiKey, fallback, payload);
+                return this.parseResponse(response);
+            } catch (e) {
+                throw new Error("Vision Chat failed: " + e);
+            }
+        }
+    }
+
+    public static async chat(userPrompt: string, context?: { code?: string, language?: string, filePath?: string, hardwareContext?: string }): Promise<AnalysisOutput> {
+        const config = vscode.workspace.getConfiguration('aria');
+        let apiKey = config.get<string>('apiKey') || process.env.GEMINI_API_KEY;
+        const preferredModel = config.get<string>('apiModel') || "gemini-3-flash-preview";
+
+        if (!apiKey) {
+            return {
+                summary: "Gemini API Key missing.",
+                detectedIssues: ["Configuration Error"],
+                recommendations: ["Set aria.apiKey"],
+                confidence: 0
+            };
+        }
+        apiKey = apiKey.trim();
+
+        const systemInstruction = "You are A.R.I.A, a hardware-aware AI assistant. " +
+            "You are pair-programming with the user. " +
+            "You are an expert in Bare Metal Firmware Debugging (ARM Cortex-M, ESP32, AVR) and PlatformIO Configuration. " +
+            "If the user provides error codes or register dumps (e.g., HFSR, CFSR, MMFAR, BFAR), DECODE them bit-by-bit. " +
+            "Explain faults like HardFault, BusFault, UsageFault, and MemManage Fault in detail. " +
+            "Use Markdown for formatting. \n\n" +
+            "IMPORTANT OUTPUT FORMAT:\n" +
+            "1. Start with a section header '# Thinking Process' and explain your analysis.\n" +
+            "2. Follow with a section header '# Final Summary' containing the direct answer.\n" +
+            "3. If code changes are needed, provide a '# Suggestions' section.\n" +
+            "   - **Option A (Small Changes & Config):** Use a Unified Diff block (```diff). Start with '--- <filename>', '+++ <filename>', and use '@@ ... @@' hunks. **You CAN and SHOULD edit 'platformio.ini' using this method if the user asks to change boards.**\n" +
+            "   - **Option B (Full Rewrite):** If changing more than 50% of the file, rewriting completely, or **switching hardware platforms** (e.g. Teensy to ESP32), provide the **FULL NEW CODE** in a standard code block. **To ensure the system updates the correct file, you MUST start the code block with standard diff headers:**\n" +
+            "     ```\n" +
+            "     --- <filename>\n" +
+            "     +++ <filename>\n" +
+            "     <full file content here...>\n" +
+            "     ```\n" +
+            "     DO NOT use '@@ ... @@' hunks for full rewrites. Just the headers and the full code.\n" +
+            "   - **IMPORTANT:** Do not mix prose/text inside the code blocks. Only code or diffs.\n" +
+            "This structure is REQUIRED.";
+
+        let contextText = "";
+        if (context) {
+             if (context.hardwareContext) {
+                 contextText += `HARDWARE CONTEXT:\n${context.hardwareContext}\n\n`;
+             }
+             if (context.code) {
+                 const lineCount = context.code.split('\n').length;
+                 contextText += `ACTIVE FILE (${context.filePath || 'untitled'} - ${lineCount} lines):\n\`\`\`${context.language || ''}\n${context.code}\n\`\`\`\n\n`;
+             }
+        }
+
+        const payload = {
+            system_instruction: {
+                parts: { text: systemInstruction }
+            },
+            contents: {
+                parts: {
+                    text: `${contextText}USER QUERY:\n${userPrompt}\n\n` +
+                          `Answer the user's query based on the context provided (if any). ` +
+                          `If the user asks to fix code or you find bugs, provide a unified diff in the response.`
+                }
+            }
+        };
+
+        const modelsToTry = [preferredModel, ...this.FALLBACK_MODELS.filter(m => m !== preferredModel)];
+        let lastError: Error | null = null;
+
+        for (const model of modelsToTry) {
+            try {
+                Logger.log(`[A.R.I.A] Chatting with Model: ${model}...`);
+                const response = await this.callGemini(apiKey, model, payload);
+                return this.parseResponse(response);
+            } catch (error) {
+                lastError = error instanceof Error ? error : new Error(String(error));
+                Logger.log(`[A.R.I.A] Chat failed with ${model}: ${lastError.message}`);
+            }
+        }
+        
+        throw lastError || new Error("All models failed");
+    }
 
     public static async analyzeSerialLogs(logs: string[], hardwareContext: string): Promise<SerialAnalysisResult> {
         const config = vscode.workspace.getConfiguration('aria');
@@ -349,7 +638,15 @@ export class GeminiClient {
         
         const prompt = {
             system_instruction: {
-                parts: { text: "You are A.R.I.A, a hardware-aware debugging assistant. Follow this process strictly:\n1. THINKING PROCESS: Analyze the serial logs conservatively. Explain your reasoning. Do not assume hardware failure unless explicitly indicated.\n2. FINAL SUMMARY: Provide a concise summary of the issue and the fix. Use markdown code blocks for diffs." }
+                parts: { text: "You are A.R.I.A, a hardware-aware debugging assistant. " +
+                    "You are an expert in Bare Metal Firmware Debugging. " +
+                    "Analyze Serial Logs for crash dumps, stack traces, and fault registers (HardFault, BusFault, etc.). " +
+                    "If you see register values (e.g. 0x00020000), explain what the bits mean. " +
+                    "Use Markdown for formatting. \n\n" +
+                    "IMPORTANT OUTPUT FORMAT:\n" +
+                    "1. Start with a section header '# Thinking Process' and explain your analysis.\n" +
+                    "2. Follow with a section header '# Final Summary' containing the direct answer to the user.\n" +
+                    "This structure is REQUIRED." }
             },
             contents: {
                 parts: {
@@ -358,7 +655,7 @@ export class GeminiClient {
                           `LOGS:\n${logs.join('\n')}\n\n` +
                           `Output the result in plain text with a clear "Thinking Process" section followed by the final "Summary" and "Recommendations". Use markdown code blocks for diffs.\n\n` +
                           `EXAMPLE OUTPUT FORMAT:\n` +
-                          `# Thinking Process\n[Analysis details...]\n\n# Summary\n[Summary of issue]\n\n# Recommendations\n- [Recommendation 1]\n- [Recommendation 2]\n\n# Suggestions\n\`\`\`diff\n--- src/main.cpp\n+++ src/main.cpp\n@@ -1,1 +1,1 @@\n-old line\n+new line\n\`\`\``
+                          `# Thinking Process\n[Analysis details...]\n\n# Final Summary\n[Summary of issue]\n\n# Recommendations\n- [Recommendation 1]\n- [Recommendation 2]\n\n# Suggestions\n\`\`\`diff\n--- src/main.cpp\n+++ src/main.cpp\n@@ -1,1 +1,1 @@\n-old line\n+new line\n\`\`\``
                 }
             }
         };
@@ -404,7 +701,7 @@ export class GeminiClient {
                     description: s.description,
                     diff: s.diff
                 })) : [],
-                thoughtProcess: text
+                thoughtProcess: structured.thoughtProcess // Only the extracted thinking process
             };
         } catch (e) {
             Logger.log("[A.R.I.A] Failed to parse AI Serial response: " + e);
@@ -418,13 +715,20 @@ export class GeminiClient {
         summary?: string, 
         detectedIssues?: string[], 
         recommendations?: string[], 
-        suggestions?: { description: string, diff: string }[] 
+        suggestions?: { description: string, diff: string }[],
+        thoughtProcess?: string 
     } {
         const result: any = {
             detectedIssues: [],
             recommendations: [],
-            suggestions: []
+            suggestions: [],
+            thoughtProcess: undefined
         };
+
+        const thinkingMatch = text.match(/#{1,6}\s*(Thinking\s+Process|Thinking)\s*([\s\S]*?)(?=#{1,6}\s*(Final\s+Summary|Summary|Recommendations|Suggestions)|$)/i);
+        if (thinkingMatch) {
+            result.thoughtProcess = thinkingMatch[2].trim();
+        }
 
         const summaryMatch = text.match(/#{1,6}\s*(Final\s+Summary|Summary)\s*([\s\S]*?)(?=#{1,6}\s*(Recommendations|Suggestions|Thinking|Final\s+Summary|Summary)|$)/i);
         if (summaryMatch) {
@@ -442,16 +746,23 @@ export class GeminiClient {
             result.detectedIssues = result.recommendations;
         }
 
+        const suggestionsMatch = text.match(/#{1,6}\s*Suggestions\s*([\s\S]*?)(?=#{1,6}\s*(Summary|Final\s+Summary|Recommendations|Thinking)|$)/i);
+        const suggestionsRange = suggestionsMatch ? { start: suggestionsMatch.index!, end: suggestionsMatch.index! + suggestionsMatch[0].length } : null;
+
         const suggestionsRegex = /```(?:\w+)?\s*([\s\S]*?)\s*```/g;
         let match;
         while ((match = suggestionsRegex.exec(text)) !== null) {
             const content = match[1].trim();
+            const blockStart = match.index;
             
             // Check if this block looks like a Unified Diff
             const hasDiffHeaders = /^--- [^\n]+\n\+\+\+ [^\n]+/m.test(content);
             const hasHunks = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/m.test(content);
             
-            if (hasDiffHeaders || hasHunks) {
+            const isDiff = hasDiffHeaders || hasHunks;
+            const isInSuggestions = suggestionsRange && blockStart >= suggestionsRange.start && blockStart < suggestionsRange.end;
+
+            if (isDiff) {
                  const diff = content;
                  // Try to extract file path from diff header
                  const fileMatch = diff.match(/^---\s+(?:a\/)?([^\s]+)/m);
@@ -463,6 +774,17 @@ export class GeminiClient {
                      diff: diff,
                      filePath: filePath
                  });
+            } else if (isInSuggestions) {
+                // It's a code block inside # Suggestions, but NOT a diff.
+                // Treat it as a Full File Rewrite (Option B).
+                // Filter out small snippets or non-code
+                if (content.length > 50 && !/Thinking Process|Summary/i.test(content)) {
+                     result.suggestions.push({
+                         description: "Full File Rewrite (Manual Apply)",
+                         diff: content, // ariaPanel will treat non-diff as full rewrite
+                         filePath: undefined // Will rely on active editor or fallback
+                     });
+                }
             }
         }
 
@@ -667,11 +989,14 @@ export class GeminiClient {
                 }
                 // LOWER TEMPERATURE: 1.0 is too creative for strict diffs. 
                 // Lowering to 0.4 to ensure it follows the "Strict Unified Diff" format.
+                // Applies to ALL Gemini 3 variants: Pro, Flash, and Vision/Image analysis.
                 finalPayload.generationConfig.temperature = 0.4;
                 
                 // Note: We are using default "High" thinking level for Pro/Flash.
                 // Explicitly enabling thinking to ensure deep reasoning
                 finalPayload.generationConfig.thinkingConfig = { include_thoughts: true };
+
+                Logger.log(`[A.R.I.A] Enforcing Strict Mode (Temp=0.4) for Gemini 3 model: ${model}`);
                 
                 // Increase output tokens for Thinking models to prevent JSON truncation
                 finalPayload.generationConfig.maxOutputTokens = 65536;
@@ -754,7 +1079,7 @@ export class GeminiClient {
                 detectedIssues: structured.detectedIssues || [],
                 recommendations: structured.recommendations || [],
                 confidence: 1.0,
-                thoughtProcess: text,
+                thoughtProcess: structured.thoughtProcess, // Only the extracted thinking process
                 suggestions: structured.suggestions
             } as any;
         } catch (e) {

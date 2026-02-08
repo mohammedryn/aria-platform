@@ -1,36 +1,58 @@
-#include <Arduino.h>
+#include <stdint.h>
+#include "soc/gpio_reg.h"
+#include "soc/io_mux_reg.h"
+#include "soc/gpio_struct.h"
+#include "esp_rom_sys.h"
 
-void setup() {
-    // Teensy 4.1 uses USB Serial; baud rate is ignored but kept for compatibility
-    Serial.begin(115200);
+/**
+ * ESP32-S3 Bare Metal Register Blinky
+ * Target: ESP32-S3-Box-3
+ * 
+ * Register Logic:
+ * - GPIO_ENABLE_REG: Enables output for the specific GPIO.
+ * - GPIO_OUT_W1TS_REG: Atomic Set (Write 1 to Set).
+ * - GPIO_OUT_W1TC_REG: Atomic Clear (Write 1 to Clear).
+ */
+
+#define BLINK_GPIO 1  // Target GPIO 1 (Change to 39 for Box-3 WS2812 Data Pin)
+
+extern "C" void app_main(void) {
+    // 1. Configure the IO MUX for the GPIO
+    // We need to set the pin to its GPIO function (typically Function 1 on S3).
+    // Using the SOC macro to calculate the register address.
+    uint32_t *io_mux_reg = (uint32_t *)GPIO_PIN_MUX_REG[BLINK_GPIO];
     
-    // Wait up to 4 seconds for Serial Monitor to open
-    while (!Serial && millis() < 4000);
-    
-    pinMode(LED_BUILTIN, OUTPUT);
-    Serial.println("Teensy 4.1 Initialized Successfully.");
-}
+    // Reset the IO MUX register for this pin and set to GPIO mode
+    // Bit 12-14 usually define the MCU_SEL (Function). 1 = GPIO.
+    *io_mux_reg = (1 << MCU_SEL_S); 
 
-void loop() {
-    unsigned long currentMillis = millis();
-
-    // Non-blocking LED Blink Logic (500ms ON / 500ms OFF)
-    static uint32_t lastBlink = 0;
-    static bool ledState = LOW;
-    if (currentMillis - lastBlink >= 500) {
-        lastBlink = currentMillis;
-        ledState = !ledState;
-        digitalWrite(LED_BUILTIN, ledState);
+    // 2. Enable Output for the GPIO
+    // The GPIO_ENABLE_REG (0x60004020) handles GPIO 0-31.
+    // For GPIO 32+, use GPIO_ENABLE1_REG.
+    if (BLINK_GPIO < 32) {
+        REG_WRITE(GPIO_ENABLE_REG, REG_READ(GPIO_ENABLE_REG) | (1 << BLINK_GPIO));
+    } else {
+        REG_WRITE(GPIO_ENABLE1_REG, REG_READ(GPIO_ENABLE1_REG) | (1 << (BLINK_GPIO - 32)));
     }
 
-    // Non-blocking Uptime Report Logic (Every 5 seconds)
-    static uint32_t lastReport = 0;
-    if (currentMillis - lastReport >= 5000) {
-        lastReport = currentMillis;
-        // Teensy 4.1 supports printf natively for easy formatting
-        // tempmon_get_temp() returns the internal die temperature as a float
-        Serial.printf("System Uptime: %lu seconds | CPU Temp: %.2f°C\n", 
-                      currentMillis / 1000, 
-                      tempmon_get_temp());
+    while (1) {
+        // 3. Set GPIO HIGH (Atomic Set)
+        if (BLINK_GPIO < 32) {
+            REG_WRITE(GPIO_OUT_W1TS_REG, (1 << BLINK_GPIO));
+        } else {
+            REG_WRITE(GPIO_OUT1_W1TS_REG, (1 << (BLINK_GPIO - 32)));
+        }
+
+        // Delay using ROM function (Bare metal delay)
+        esp_rom_delay_us(500000);
+
+        // 4. Set GPIO LOW (Atomic Clear)
+        if (BLINK_GPIO < 32) {
+            REG_WRITE(GPIO_OUT_W1TC_REG, (1 << BLINK_GPIO));
+        } else {
+            REG_WRITE(GPIO_OUT1_W1TC_REG, (1 << (BLINK_GPIO - 32)));
+        }
+
+        esp_rom_delay_us(500000);
     }
 }
