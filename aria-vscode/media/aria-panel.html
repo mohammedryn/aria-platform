@@ -6,17 +6,94 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>A.R.I.A. Copilot</title>
     <style>
-        :root {
-            --input-radius: 12px;
-            --card-radius: 8px;
-            --spacing-sm: 8px;
-            --spacing-md: 12px;
-            --user-bubble-bg: var(--vscode-button-secondaryBackground);
-            --user-bubble-fg: var(--vscode-button-secondaryForeground);
-            --ai-bubble-bg: transparent;
-            --ai-bubble-fg: var(--vscode-foreground);
+        /* History Sidebar */
+        #history-drawer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 250px;
+            background-color: var(--vscode-sideBar-background);
+            border-right: 1px solid var(--vscode-panel-border);
+            z-index: 2000;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+            display: flex;
+            flex-direction: column;
+        }
+        #history-drawer.open {
+            transform: translateX(0);
+        }
+        #history-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1999;
+            display: none;
+        }
+        #history-overlay.open {
+            display: block;
+        }
+        .history-header {
+            padding: 15px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .history-list {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+        .history-item {
+            padding: 10px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin-bottom: 5px;
+            position: relative;
+        }
+        .history-item:hover {
+            background-color: var(--vscode-list-hoverBackground);
+        }
+        .history-item.active {
+            background-color: var(--vscode-list-activeSelectionBackground);
+            color: var(--vscode-list-activeSelectionForeground);
+        }
+        .history-title {
+            font-weight: 600;
+            font-size: 0.9em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .history-date {
+            font-size: 0.75em;
+            opacity: 0.7;
+        }
+        .history-delete {
+            position: absolute;
+            right: 5px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: var(--vscode-errorForeground);
+            cursor: pointer;
+            display: none;
+            padding: 4px;
+        }
+        .history-item:hover .history-delete {
+            display: block;
         }
 
+        :root {
+            --container-paddding: 20px;
+            --input-height: 40px;
+        }
         body {
             font-family: var(--vscode-font-family);
             color: var(--vscode-foreground);
@@ -28,475 +105,397 @@
             height: 100vh;
             overflow: hidden;
         }
-
-        /* --- Scrollbar --- */
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background); border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: var(--vscode-scrollbarSlider-hoverBackground); }
-        ::-webkit-scrollbar-track { background: transparent; }
-
-        /* --- Layout --- */
-        #main-wrapper {
-            flex-grow: 1;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            position: relative;
+        
+        /* Header */
+        header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+            flex-shrink: 0;
+        }
+        h1 {
+            font-size: 1.1em;
+            margin: 0;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        h2 {
+            font-size: 0.85em;
+            color: var(--vscode-descriptionForeground);
+            margin: 5px 0 0 0;
+            font-weight: normal;
         }
 
+        /* Result Stream (The "Output") */
         #result-stream {
             flex-grow: 1;
+            padding: 20px;
             overflow-y: auto;
-            padding: 20px 20px 180px 20px; /* Bottom padding for fixed input */
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 15px;
         }
-
-        #bottom-container {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            padding: 15px 20px 20px 20px;
-            background: linear-gradient(to top, var(--vscode-editor-background) 90%, transparent);
-            z-index: 100;
-        }
-
-        /* --- Chat Entries --- */
-        .entry {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            animation: fadeIn 0.2s ease-out;
-            max-width: 100%;
-        }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
-
-        .entry-command {
-            align-self: flex-end;
-            background-color: var(--user-bubble-bg);
-            color: var(--user-bubble-fg);
-            padding: 10px 14px;
-            border-radius: 12px;
-            border-bottom-right-radius: 2px;
-            font-size: 0.9em;
-            max-width: 85%;
-            border: 1px solid var(--vscode-panel-border);
-            line-height: 1.4;
-        }
-
-        .entry-result {
-            align-self: flex-start;
-            width: 100%;
-            font-size: 0.95em;
-            line-height: 1.6;
-            background-color: var(--ai-bubble-bg);
-            color: var(--ai-bubble-fg);
-        }
-
-        /* --- Markdown Styling --- */
-        .entry-result p { margin-bottom: 10px; }
-        .entry-result ul, .entry-result ol { margin-left: 20px; margin-bottom: 10px; }
-        .entry-result li { margin-bottom: 4px; }
         
-        /* --- Code Blocks & Diffs --- */
-        pre { 
-            background: var(--vscode-textCodeBlock-background); 
-            padding: 10px; 
-            border-radius: 6px; 
-            overflow-x: auto; 
-            margin: 10px 0; 
-            position: relative;
-            border: 1px solid var(--vscode-widget-border);
-        }
-        code { 
-            font-family: var(--vscode-editor-font-family); 
-            font-size: 0.9em; 
-        }
-        p > code {
-            background: var(--vscode-textCodeBlock-background);
-            padding: 2px 4px;
-            border-radius: 4px;
-        }
-
-        /* --- Cards & Context Panels --- */
-        .analysis-card, .context-panel {
-            background-color: var(--vscode-sideBar-background);
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: var(--card-radius);
-            padding: 15px;
+        .entry {
             margin-bottom: 10px;
         }
-
-        .context-panel {
-            display: none;
-            animation: slideUp 0.2s ease-out;
-        }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-
-        /* --- Input Area (Cursor Style) --- */
-        .input-box {
-            background-color: var(--vscode-input-background);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: var(--input-radius);
-            padding: 12px;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            position: relative;
-            transition: border-color 0.2s;
-        }
-
-        .input-box:focus-within {
-            border-color: var(--vscode-focusBorder);
-        }
-
-        textarea#command-input {
-            background: transparent;
-            border: none;
-            color: var(--vscode-input-foreground);
+        .entry-command {
             font-family: var(--vscode-editor-font-family);
+            font-size: 0.9em;
+            color: var(--vscode-textPreformat-foreground);
+            background: var(--vscode-textBlockQuote-background);
+            padding: 8px 12px;
+            border-radius: 4px;
+            align-self: flex-start;
+            display: inline-block;
+            margin-bottom: 8px;
+            border-left: 3px solid var(--vscode-textLink-activeForeground);
+        }
+        .entry-result {
             font-size: 0.95em;
-            width: 100%;
-            resize: none;
-            outline: none;
-            min-height: 24px;
-            max-height: 200px;
-            overflow-y: hidden;
             line-height: 1.5;
         }
 
-        .input-toolbar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding-top: 4px;
+        /* Thought Process (Markdown Style) */
+        .thought-process-container {
+            margin-top: 15px;
+            margin-bottom: 15px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 6px;
+            overflow: hidden;
+            background-color: var(--vscode-editor-inactiveSelectionBackground);
         }
-
-        .tools-left, .tools-right {
+        
+        .thought-process-header {
+            padding: 8px 12px;
+            background-color: var(--vscode-editor-lineHighlightBackground);
+            cursor: pointer;
             display: flex;
             align-items: center;
             gap: 8px;
-        }
-
-        .pill-badge {
-            font-size: 0.75em;
-            background: var(--vscode-badge-background);
-            color: var(--vscode-badge-foreground);
-            padding: 2px 8px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            gap: 4px;
+            font-weight: 600;
+            font-size: 0.9em;
+            color: var(--vscode-foreground);
             user-select: none;
         }
+        
+        .thought-process-header:hover {
+            background-color: var(--vscode-list-hoverBackground);
+        }
 
-        .model-select {
-            position: relative;
+        .thought-process-content {
+            padding: 15px;
+            font-family: var(--vscode-editor-font-family);
+            font-size: 0.9em;
+            line-height: 1.6;
+            color: var(--vscode-editor-foreground);
+            white-space: pre-wrap;
+            display: none; /* Hidden by default if closed */
         }
-        .model-select-pill {
-            background: #0b0b0b;
-            color: #e6e6e6;
-            border: 1px solid #1f1f1f;
-            font-size: 0.8em;
-            cursor: pointer;
-            outline: none;
-            padding: 4px 10px;
-            border-radius: 6px;
-            min-width: 180px;
-            max-width: 240px;
-            text-align: left;
-            display: inline-flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 8px;
-        }
-        .model-select-pill:hover { background: #111; color: #fff; }
-        .model-select-pill:focus { border-color: #2a2a2a; }
-        .model-select-pill span {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        .model-menu {
-            position: absolute;
-            bottom: calc(100% + 6px);
-            left: 0;
-            width: 280px;
-            max-height: 320px;
-            overflow-y: auto;
-            background: #0b0b0b;
-            color: #e6e6e6;
-            border: 1px solid #1f1f1f;
-            border-radius: 8px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-            display: none;
-            z-index: 1100;
-        }
-        .model-menu.open { display: block; }
-        .model-item {
-            width: 100%;
-            background: transparent;
-            color: inherit;
-            border: none;
-            text-align: left;
-            padding: 8px 10px;
-            cursor: pointer;
-            font-size: 0.85em;
-        }
-        .model-item:hover { background: #141414; }
-        .model-item.active { background: #1a1a1a; }
-        .model-item[disabled] { color: #777; cursor: not-allowed; }
 
-        .icon-btn {
-            background: transparent;
-            border: none;
-            color: var(--vscode-icon-foreground);
-            cursor: pointer;
-            padding: 4px;
+        .thought-process-content[open] {
+            display: block;
+        }
+
+        /* Status Dot */
+        .status-dot {
+            height: 8px;
+            width: 8px;
+            background-color: var(--vscode-charts-blue);
+            border-radius: 50%;
+            display: inline-block;
+        }
+        
+        /* Markdown Content Styling */
+        .markdown-content h1, .markdown-content h2, .markdown-content h3 {
+            margin-top: 1em;
+            margin-bottom: 0.5em;
+            font-weight: 600;
+            color: var(--vscode-textLink-foreground);
+        }
+        .markdown-content code {
+            font-family: var(--vscode-editor-font-family);
+            background-color: var(--vscode-textCodeBlock-background);
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        .markdown-content pre {
+            background-color: var(--vscode-textCodeBlock-background);
+            padding: 10px;
             border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            overflow-x: auto;
         }
-        .icon-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
 
-        .submit-btn {
+        /* Suggestions */
+        .suggestion-item {
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 4px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        .suggestion-header {
+            padding: 8px 12px;
+            background: var(--vscode-sideBar-background);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .suggestion-header:hover {
+            background: var(--vscode-list-hoverBackground);
+        }
+        .suggestion-body {
+            padding: 10px;
+            display: none; /* Hidden by default */
+            border-top: 1px solid var(--vscode-panel-border);
+        }
+        .suggestion-body.open {
+            display: block;
+        }
+        .suggestion-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        button {
             background: var(--vscode-button-background);
             color: var(--vscode-button-foreground);
             border: none;
-            border-radius: 6px;
-            width: 28px;
-            height: 28px;
+            padding: 6px 12px;
+            border-radius: 2px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        button:hover {
+            background: var(--vscode-button-hoverBackground);
+        }
+        button.secondary {
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+        }
+        button.secondary:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+        }
+        
+        /* Input Area */
+        #command-bar {
+            padding: 15px 20px;
+            border-top: 1px solid var(--vscode-panel-border);
+            background: var(--vscode-editor-background);
+            flex-shrink: 0;
+        }
+        
+        .input-wrapper {
+            position: relative;
             display: flex;
             align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            font-size: 14px;
-            transition: background 0.2s;
         }
-        .submit-btn:hover { background: var(--vscode-button-hoverBackground); }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            font-family: var(--vscode-editor-font-family);
+            font-size: 0.9em;
+            outline: none;
+        }
+        
+        input[type="text"]:focus {
+            border-color: var(--vscode-focusBorder);
+        }
+        
+        input[type="text"]::placeholder {
+            color: var(--vscode-input-placeholderForeground);
+        }
 
-        /* --- Autocomplete --- */
+        /* Status Indicator */
+        .status-dot {
+            height: 8px;
+            width: 8px;
+            background-color: var(--vscode-testing-iconPassed);
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+
+        /* Autocomplete */
         #autocomplete-list {
             position: absolute;
-            bottom: 100%;
-            left: 0; right: 0;
+            bottom: 100%; /* Position above the input */
+            left: 0;
+            right: 0;
             background-color: var(--vscode-menu-background);
             color: var(--vscode-menu-foreground);
             border: 1px solid var(--vscode-menu-border);
-            border-radius: 6px;
+            border-radius: 4px;
             max-height: 150px;
             overflow-y: auto;
             z-index: 1000;
             display: none;
-            box-shadow: 0 -4px 12px rgba(0,0,0,0.15);
-            margin-bottom: 5px;
+            box-shadow: 0 -4px 6px rgba(0, 0, 0, 0.1);
         }
-        .autocomplete-item { padding: 8px 12px; cursor: pointer; font-size: 0.9em; }
-        .autocomplete-item:hover, .autocomplete-item.active { background-color: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
 
-        /* --- Thinking Process (Collapsible) --- */
-        details.thinking-process {
-            margin: 10px 0;
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 6px;
-            background-color: var(--vscode-editor-inactiveSelectionBackground);
-            overflow: hidden;
-        }
-        
-        details.thinking-process summary {
+        .autocomplete-item {
             padding: 8px 12px;
             cursor: pointer;
-            font-size: 0.85em;
-            font-weight: 600;
-            user-select: none;
-            outline: none;
-            display: flex;
-            align-items: center;
-            color: var(--vscode-descriptionForeground);
-        }
-        
-        details.thinking-process summary:hover {
-            color: var(--vscode-foreground);
+            border-bottom: 1px solid var(--vscode-menu-separatorBackground);
         }
 
-        .thinking-content {
-            padding: 10px 12px;
-            font-family: var(--vscode-editor-font-family);
-            font-size: 0.9em;
-            white-space: pre-wrap;
-            border-top: 1px solid var(--vscode-panel-border);
-            color: var(--vscode-descriptionForeground);
+        .autocomplete-item:last-child {
+            border-bottom: none;
         }
 
-        /* --- Action Buttons (Apply/Copy) --- */
-        .code-actions {
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            display: flex;
-            gap: 5px;
-            opacity: 0;
-            transition: opacity 0.2s;
+        .autocomplete-item:hover, .autocomplete-item.active {
+            background-color: var(--vscode-menu-selectionBackground);
+            color: var(--vscode-menu-selectionForeground);
         }
-        pre:hover .code-actions { opacity: 1; }
 
-        .action-btn {
-            background: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-            border: none;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.8em;
-            cursor: pointer;
-        }
-        .action-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
-
-        /* --- "Apply All" Button --- */
-        .bulk-actions {
-            margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid var(--vscode-panel-border);
-            display: flex;
-            justify-content: flex-end;
-        }
-        
-        .apply-all-btn {
-            background: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .apply-all-btn:hover { background: var(--vscode-button-hoverBackground); }
-
-        /* --- History Drawer --- */
-        #history-drawer {
-            position: fixed; top: 0; left: 0; bottom: 0; width: 250px;
-            background-color: var(--vscode-sideBar-background);
-            border-right: 1px solid var(--vscode-panel-border);
-            z-index: 2000;
-            transform: translateX(-100%);
-            transition: transform 0.3s ease;
-            display: flex; flex-direction: column;
-        }
-        #history-drawer.open { transform: translateX(0); }
-        #history-overlay {
-            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0, 0, 0, 0.5); z-index: 1999; display: none;
-        }
-        #history-overlay.open { display: block; }
-        .history-header { padding: 15px; border-bottom: 1px solid var(--vscode-panel-border); display: flex; justify-content: space-between; align-items: center; }
-        .history-list { flex-grow: 1; overflow-y: auto; padding: 10px; }
-        .history-item { padding: 10px; cursor: pointer; border-radius: 4px; margin-bottom: 5px; position: relative; }
-        .history-item:hover { background-color: var(--vscode-list-hoverBackground); }
     </style>
 </head>
 <body>
-    <!-- History Components -->
     <div id="history-overlay"></div>
     <div id="history-drawer">
         <div class="history-header">
-            <span>Chat History</span>
-            <button id="btn-close-history" class="icon-btn">✕</button>
+            <span style="font-weight: 600;">Chat History</span>
+            <button id="btn-close-history" style="background:none; border:none; cursor:pointer; color:var(--vscode-foreground);">✕</button>
         </div>
         <div style="padding: 10px;">
-            <button id="btn-new-chat" style="width: 100%; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 8px; cursor: pointer; border-radius: 4px;">+ New Chat</button>
+            <button id="btn-new-chat" style="width: 100%; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 8px; cursor: pointer; border-radius: 2px;">+ New Chat</button>
         </div>
-        <div id="history-list" class="history-list"></div>
+        <div id="history-list" class="history-list">
+            <!-- Items go here -->
+        </div>
+    </div>
+    <header>
+        <div style="display: flex; align-items: center;">
+            <button id="btn-toggle-history" style="background:none; border:none; cursor:pointer; font-size:1.2em; margin-right:10px; color:var(--vscode-foreground);">☰</button>
+            <div>
+                <h1><span class="status-dot"></span>A.R.I.A. Copilot</h1>
+                <h2>Hardware-Aware IDE Copilot</h2>
+            </div>
+        </div>
+    </header>
+    <div id="model-container" style="padding: 10px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 0.85em; opacity: 0.8;">Model</span>
+        <select id="model-select" style="flex: 1; padding: 6px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); border-radius: 4px;"></select>
+        <button id="model-refresh" class="secondary" style="padding: 6px 10px;">Refresh</button>
+        <span id="model-status" style="font-size: 0.8em; opacity: 0.7;"></span>
     </div>
 
-    <!-- Header (Hidden History Toggle) -->
-    <div style="position: absolute; top: 10px; right: 20px; z-index: 50;">
-        <button id="btn-toggle-history" class="icon-btn" style="font-size: 1.2em;">☰</button>
-    </div>
-
-    <!-- Main Content -->
-    <div id="main-wrapper">
-        <div id="result-stream">
-            <!-- Intro Message -->
-            <div class="entry">
-                <div class="entry-result">
-                    <div style="opacity: 0.7; font-size: 0.9em; text-align: center; margin-top: 40px;">
-                        <div style="font-weight: 600; font-size: 1.2em; margin-bottom: 5px;">A.R.I.A. Hardware Agent</div>
-                        <div>Gemini 3.0 • Hardware-Aware • Passive Vision</div>
-                    </div>
+    <!-- Visual Hardware Context Section -->
+    <div id="vision-container" style="padding: 15px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); display: none;">
+        <div style="display: flex; gap: 15px; align-items: flex-start;">
+            <div id="vision-thumb" style="width: 80px; height: 80px; background: #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                <span style="font-size: 24px;">📷</span>
+            </div>
+            <div style="flex-grow: 1;">
+                <h3 style="margin: 0 0 5px 0; font-size: 0.9em; text-transform: uppercase;">Visual Context</h3>
+                <div id="vision-details" style="font-size: 0.85em; opacity: 0.9;">
+                    No image analyzed.
                 </div>
+                <div id="vision-warnings" style="color: var(--vscode-errorForeground); font-size: 0.85em; margin-top: 5px; display: none;"></div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+                <button id="btn-use-reference" style="font-size: 0.8em; padding: 4px 8px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; cursor: pointer;">Use as Reference</button>
+                <button id="btn-discard-vision" class="secondary" style="font-size: 0.8em; padding: 4px 8px;">✕ Discard</button>
             </div>
         </div>
     </div>
 
-    <!-- Bottom Interface -->
-    <div id="bottom-container">
-        <!-- Active Context Zone (Floating Panels) -->
-        <div id="context-zone">
-            <!-- Vision Context -->
-            <div id="vision-container" class="context-panel">
-                <div style="display: flex; gap: 15px; align-items: flex-start;">
-                    <div id="vision-thumb" style="width: 60px; height: 60px; background: #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden;">📷</div>
-                    <div style="flex-grow: 1;">
-                        <h3 style="margin: 0 0 5px 0;">Visual Context</h3>
-                        <div id="vision-details" style="font-size: 0.85em; opacity: 0.9;">Analyzing...</div>
-                    </div>
-                    <div style="display: flex; gap: 5px;">
-                        <button id="btn-use-reference" class="icon-btn" title="Use as Reference">📌</button>
-                        <button id="btn-discard-vision" class="icon-btn" title="Discard">✕</button>
-                    </div>
-                </div>
+    <!-- Video Context Section -->
+    <div id="video-context-container" style="padding: 15px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); display: none;">
+        <div style="display: flex; gap: 15px; align-items: flex-start;">
+            <div id="video-thumb" style="width: 80px; height: 80px; background: #222; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                <span style="font-size: 24px;">🎥</span>
             </div>
-
-            <!-- Firmware Tools -->
-            <div id="firmware-container" class="context-panel">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                    <h3 style="margin:0;">Firmware Deployment</h3>
-                    <span id="deployment-status" style="font-size: 0.8em; opacity: 0.7;">Ready</span>
+            <div style="flex-grow: 1;">
+                <h3 style="margin: 0 0 5px 0; font-size: 0.9em; text-transform: uppercase;">Video Context</h3>
+                <div id="video-details" style="font-size: 0.85em; opacity: 0.9;">
+                    No video selected.
                 </div>
-                <div style="display: flex; gap: 10px;">
-                    <button id="btn-build" style="flex: 1; padding: 6px; background: var(--vscode-button-background); color: white; border: none; border-radius: 4px; cursor: pointer;">Build</button>
-                    <button id="btn-flash" style="flex: 1; padding: 6px; background: var(--vscode-button-secondaryBackground); color: white; border: none; border-radius: 4px; cursor: pointer;">Flash</button>
-                </div>
+                <div id="video-status" style="color: var(--vscode-charts-blue); font-size: 0.85em; margin-top: 5px; font-style: italic;"></div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+                <button id="btn-analyze-video" style="font-size: 0.8em; padding: 4px 8px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; cursor: pointer; display: none;">Analyze</button>
+                <button id="btn-discard-video" class="secondary" style="font-size: 0.8em; padding: 4px 8px;">✕ Discard</button>
             </div>
         </div>
+    </div>
 
-        <!-- Input Box -->
-        <div id="command-bar">
+    <!-- Camera Stream Section -->
+    <div id="camera-stream-container" style="padding: 15px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: #000; display: none; flex-direction: column; align-items: center;">
+        <div style="width: 100%; display: flex; justify-content: flex-end; margin-bottom: 5px;">
+             <button id="btn-close-stream" style="background: none; border: none; color: #fff; font-size: 1.2em; cursor: pointer;" title="Close Camera">✕</button>
+        </div>
+        <img id="camera-stream-img" style="width: 100%; max-height: 300px; object-fit: contain; border: 1px solid #333;" />
+        
+        <!-- Photo Mode Controls -->
+        <button id="btn-capture-stream" style="margin-top: 10px; width: 100%;">Capture Photo</button>
+        
+        <!-- Video Mode Controls -->
+        <div id="video-controls-container" style="width: 100%; display: none; margin-top: 10px; gap: 10px;">
+            <button id="btn-record-start" style="flex: 1; background: var(--vscode-charts-red); color: white; border: none; padding: 6px; cursor: pointer;">Start Recording</button>
+            <button id="btn-record-stop" style="flex: 1; display: none; background: #555; color: white; border: none; padding: 6px; cursor: pointer;">Stop Recording</button>
+        </div>
+
+        <p style="font-size: 0.8em; opacity: 0.7; margin-top: 5px;">Native Python Stream</p>
+    </div>
+
+    <!-- Firmware Deployment Section -->
+    <div id="firmware-container" style="padding: 15px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-editor-background); display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0; font-size: 0.9em; text-transform: uppercase;">Firmware Deployment</h3>
+            <span id="deployment-status" style="font-size: 0.8em; opacity: 0.7;">Ready</span>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <button id="btn-build" style="flex: 1;">Build Firmware</button>
+            <button id="btn-flash" style="flex: 1;" class="secondary">Flash to Device</button>
+        </div>
+    </div>
+
+    <!-- Serial Diagnostics Section -->
+    <div id="serial-container" style="padding: 15px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0; font-size: 0.9em; text-transform: uppercase;">Serial Diagnostics</h3>
+            <span id="serial-status" style="font-size: 0.8em; opacity: 0.7; color: var(--vscode-descriptionForeground);">Disconnected</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85em;">
+             <span>Buffered Lines:</span>
+             <span id="serial-lines">0</span>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <button id="btn-open-serial" style="flex: 1;">Open Monitor</button>
+            <button id="btn-analyze-serial" style="flex: 1;" class="secondary">Analyze Logs</button>
+        </div>
+        <div id="serial-results" style="display: none; background: var(--vscode-editor-background); padding: 10px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; font-size: 0.85em;">
+            <!-- Analysis results go here -->
+        </div>
+    </div>
+
+
+    <div id="result-stream">
+        <!-- Initial State -->
+        <div class="entry">
+            <div class="entry-result">
+                Ready for commands. Type <code>/help</code> for options.
+            </div>
+        </div>
+    </div>
+
+    <div id="command-bar">
+        <div class="input-wrapper">
+            <button id="btn-camera" style="margin-right: 8px; background: none; border: none; cursor: pointer; color: var(--vscode-foreground);" title="Upload Hardware Image">📷</button>
+            <button id="btn-video" style="margin-right: 8px; background: none; border: none; cursor: pointer; color: var(--vscode-foreground);" title="Analyze Hardware Video">🎥</button>
+            <input type="file" id="file-input" accept="image/png, image/jpeg" style="display: none;" />
             <div id="autocomplete-list"></div>
-            <div class="input-box">
-                <textarea id="command-input" rows="1" placeholder="Ask A.R.I.A... (@ for context, / for commands)"></textarea>
-                <div class="input-toolbar">
-                    <div class="tools-left">
-                        <div class="pill-badge">
-                            <span class="status-dot" style="height: 6px; width: 6px; border-radius: 50%; background-color: var(--vscode-charts-blue); display: inline-block;"></span> Agent
-                        </div>
-                        <div class="model-select">
-                            <button id="model-button" class="model-select-pill" type="button">
-                                <span>Loading models...</span>
-                                <span>▾</span>
-                            </button>
-                            <div id="model-menu" class="model-menu"></div>
-                        </div>
-                    </div>
-                    <div class="tools-right">
-                        <button id="model-refresh" class="icon-btn" title="Refresh Models">↻</button>
-                        <button id="btn-camera" class="icon-btn" title="Add Image">📷</button>
-                        <button id="btn-video" class="icon-btn" title="Add Video">🎥</button>
-                        <button id="btn-submit" class="submit-btn">➤</button>
-                    </div>
-                </div>
-            </div>
+            <input type="text" id="command-input" placeholder="Enter command (e.g., /analyze, /vision)..." autocomplete="off" />
         </div>
     </div>
-
-    <!-- Hidden File Input -->
-    <input type="file" id="file-input" accept="image/png, image/jpeg" style="display: none;" />
 
     <script>
         const vscode = acquireVsCodeApi();
@@ -505,263 +504,254 @@
         const autocompleteList = document.getElementById('autocomplete-list');
         const fileInput = document.getElementById('file-input');
         const btnCamera = document.getElementById('btn-camera');
-        const btnSubmit = document.getElementById('btn-submit');
-        const modelButton = document.getElementById('model-button');
-        const modelMenu = document.getElementById('model-menu');
-        const modelRefresh = document.getElementById('model-refresh');
-        let currentModel = '';
+        const btnVideo = document.getElementById('btn-video');
         
-        let commandHistory = [];
-        let historyIndex = -1;
+        const visionContainer = document.getElementById('vision-container');
+        const visionDetails = document.getElementById('vision-details');
+        const visionThumb = document.getElementById('vision-thumb');
+        const visionWarnings = document.getElementById('vision-warnings');
+        const btnDiscardVision = document.getElementById('btn-discard-vision');
+        const btnUseReference = document.getElementById('btn-use-reference');
+        
+        const videoContextContainer = document.getElementById('video-context-container');
+        const videoDetails = document.getElementById('video-details');
+        const videoStatus = document.getElementById('video-status');
+        const btnAnalyzeVideo = document.getElementById('btn-analyze-video');
+        const btnDiscardVideo = document.getElementById('btn-discard-video');
 
-        // --- Auto-Resize Textarea ---
-        function autoResize() {
-            input.style.height = 'auto';
-            input.style.height = Math.min(input.scrollHeight, 200) + 'px';
-        }
-        input.addEventListener('input', autoResize);
+        const modelSelect = document.getElementById('model-select');
+        const modelRefresh = document.getElementById('model-refresh');
+        const modelStatus = document.getElementById('model-status');
+        
+        const btnBuild = document.getElementById('btn-build');
+        const btnFlash = document.getElementById('btn-flash');
+        const deploymentStatus = document.getElementById('deployment-status');
 
-        // --- Message Handling ---
-        window.addEventListener('message', event => {
-            const message = event.data;
-            switch (message.type) {
-                case 'addEntry':
-                    addEntry(message.text, message.isUser, message.metadata);
-                    break;
-                case 'analysisResult':
-                    renderAnalysis(message.analysis);
-                    break;
-                case 'updateHistory':
-                    updateHistoryDrawer(message.history);
-                    break;
-                case 'showVision':
-                    document.getElementById('vision-container').style.display = 'block';
-                    break;
-                case 'hideVision':
-                    document.getElementById('vision-container').style.display = 'none';
-                    break;
-                case 'successMessage':
-                    addEntry(message.text, false); // Add as system message
-                    break;
-                case 'analysisError':
-                    addEntry(`⚠️ **Error:** ${message.error}`, false);
-                    break;
-                case 'modelList':
-                    updateModelList(message.models || [], message.selected, message.error);
-                    break;
-                case 'modelSelected':
-                    if (message.model) {
-                        currentModel = message.model;
-                        updateModelButton(message.model);
-                        closeModelMenu();
-                    }
-                    break;
+        const btnOpenSerial = document.getElementById('btn-open-serial');
+        const btnAnalyzeSerial = document.getElementById('btn-analyze-serial');
+        const serialStatus = document.getElementById('serial-status');
+        const serialLines = document.getElementById('serial-lines');
+        const serialResults = document.getElementById('serial-results');
+
+        const cameraStreamContainer = document.getElementById('camera-stream-container');
+        const cameraStreamImg = document.getElementById('camera-stream-img');
+        const btnCaptureStream = document.getElementById('btn-capture-stream');
+        const btnCloseStream = document.getElementById('btn-close-stream');
+        const videoControlsContainer = document.getElementById('video-controls-container');
+        const btnRecordStart = document.getElementById('btn-record-start');
+        const btnRecordStop = document.getElementById('btn-record-stop');
+        let currentStreamUrl = '';
+        let modelRequestInFlight = false;
+
+        // History UI Elements
+        const historyDrawer = document.getElementById('history-drawer');
+        const historyOverlay = document.getElementById('history-overlay');
+        const historyList = document.getElementById('history-list');
+        const btnToggleHistory = document.getElementById('btn-toggle-history');
+        const btnCloseHistory = document.getElementById('btn-close-history');
+        const btnNewChat = document.getElementById('btn-new-chat');
+
+        function toggleHistory(show) {
+            if (show) {
+                historyDrawer.classList.add('open');
+                historyOverlay.classList.add('open');
+                vscode.postMessage({ command: 'getHistory' });
+            } else {
+                historyDrawer.classList.remove('open');
+                historyOverlay.classList.remove('open');
             }
+        }
+
+        btnToggleHistory.addEventListener('click', () => toggleHistory(true));
+        btnCloseHistory.addEventListener('click', () => toggleHistory(false));
+        historyOverlay.addEventListener('click', () => toggleHistory(false));
+        
+        btnNewChat.addEventListener('click', () => {
+            toggleHistory(false);
+            vscode.postMessage({ command: 'newChat' });
         });
 
-        // --- Rendering Logic ---
-        function addEntry(text, isUser, metadata) {
-            const container = document.createElement('div');
-            container.className = 'entry';
-            
-            const content = document.createElement('div');
-            content.className = isUser ? 'entry-command' : 'entry-result';
-            
-            if (isUser) {
-                content.textContent = text;
-            } else {
-                content.innerHTML = parseMarkdown(text);
-            }
-            
-            container.appendChild(content);
-            stream.appendChild(container);
-            
-            // Auto-scroll
-            window.scrollTo(0, document.body.scrollHeight);
-            stream.scrollTop = stream.scrollHeight;
-        }
-
-        function renderAnalysis(analysis) {
-            const container = document.createElement('div');
-            container.className = 'entry';
-            
-            const card = document.createElement('div');
-            card.className = 'entry-result analysis-card';
-            
-            // Render basic markdown content
-            if (analysis.content) {
-                card.innerHTML = parseMarkdown(analysis.content);
-            }
-
-            // Suggestions & Apply All Button
-            if (analysis.suggestions && analysis.suggestions.length > 0) {
-                const bulkActions = document.createElement('div');
-                bulkActions.className = 'bulk-actions';
-                
-                const applyAllBtn = document.createElement('button');
-                applyAllBtn.className = 'apply-all-btn';
-                applyAllBtn.innerHTML = '<span>⚡</span> Apply All Fixes';
-                applyAllBtn.onclick = () => {
-                    const diffs = analysis.suggestions.map(s => s.diff);
-                    vscode.postMessage({ command: 'applyAllDiffs', diffs: diffs });
-                    applyAllBtn.textContent = 'Applying...';
-                    applyAllBtn.disabled = true;
-                };
-                
-                bulkActions.appendChild(applyAllBtn);
-                card.appendChild(bulkActions);
-            }
-            
-            container.appendChild(card);
-            stream.appendChild(container);
-            stream.scrollTop = stream.scrollHeight;
-        }
-
-        // --- Markdown Parser with Collapsible Thinking ---
-        function parseMarkdown(text) {
-            if (!text) return '';
-            
-            let html = text;
-
-            // 1. Thinking Process (Collapse it)
-            // Regex to find content between # Thinking Process and # Final Summary (or end)
-            // We replace the header and wrap the content in <details>
-            const thinkingRegex = /#\s*Thinking Process\s*\n([\s\S]*?)(?=\n#\s*Final Summary|$)/i;
-            html = html.replace(thinkingRegex, (match, content) => {
-                return `<details class="thinking-process">
-                    <summary>Thinking Process</summary>
-                    <div class="thinking-content">${markedParse(content)}</div>
-                </details>`;
-            });
-
-            // 2. Final Summary Header (Remove or Style)
-            html = html.replace(/#\s*Final Summary\s*/i, '');
-
-            // 3. Parse remaining Markdown
-            html = markedParse(html);
-
-            return html;
-        }
-
-        // Simple Markdown Parser (Replace with marked.js if available, but this is a lightweight fallback)
-        function markedParse(text) {
-            let html = text
-                // Code Blocks with Actions
-                .replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
-                    const id = 'code-' + Math.random().toString(36).substr(2, 9);
-                    return `<div style="position:relative;">
-                        <div class="code-actions">
-                            <button class="action-btn" onclick="copyCode('${id}')">Copy</button>
-                            <button class="action-btn" onclick="applyCode('${id}')">Apply</button>
-                        </div>
-                        <pre><code id="${id}" class="language-${lang || ''}">${escapeHtml(code)}</code></pre>
-                    </div>`;
-                })
-                // Inline Code
-                .replace(/`([^`]+)`/g, '<code>$1</code>')
-                // Bold
-                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-                // Italic
-                .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-                // Lists
-                .replace(/^\s*-\s+(.+)$/gm, '<li>$1</li>')
-                .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
-                // Line breaks
-                .replace(/\n/g, '<br>');
-            
-            return html;
-        }
-
-        function escapeHtml(text) {
-            return text
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
-        }
-
-        // --- Utility Functions ---
-        window.copyCode = (id) => {
-            const code = document.getElementById(id).innerText;
-            navigator.clipboard.writeText(code);
-        };
-
-        window.applyCode = (id) => {
-            const code = document.getElementById(id).innerText;
-            // Detect if it's a diff or file
-            if (code.startsWith('---') || code.startsWith('+++')) {
-                vscode.postMessage({ command: 'applyDiff', diff: code });
-            } else {
-                vscode.postMessage({ command: 'applyFile', content: code });
-            }
-        };
-
-        // --- Event Listeners ---
-        function requestModels() {
-            vscode.postMessage({ command: 'getModels' });
-        }
-
-        function updateModelButton(text) {
-            if (!modelButton) return;
-            const label = modelButton.querySelector('span');
-            if (label) label.textContent = text;
-        }
-
-        function closeModelMenu() {
-            if (modelMenu) modelMenu.classList.remove('open');
-        }
-
-        function updateModelList(models, selected, error) {
-            if (!modelMenu) return;
-            modelMenu.innerHTML = '';
-            currentModel = selected || currentModel || (models[0] || '');
-            updateModelButton(currentModel || 'Select model');
-
-            if (!models || models.length === 0) {
-                const item = document.createElement('button');
-                item.className = 'model-item';
-                item.textContent = error ? 'No models (set API key)' : 'No models available';
-                item.disabled = true;
-                modelMenu.appendChild(item);
+        function renderHistoryList(sessions) {
+            historyList.innerHTML = '';
+            if (!sessions || sessions.length === 0) {
+                historyList.innerHTML = '<div style="padding:10px; opacity:0.7;">No history</div>';
                 return;
             }
+            
+            // Sort by last modified
+            sessions.sort((a, b) => b.lastModified - a.lastModified);
 
-            models.forEach(model => {
-                const item = document.createElement('button');
-                item.className = 'model-item';
-                item.textContent = model;
-                if (model === currentModel) item.classList.add('active');
-                item.addEventListener('click', () => {
-                    currentModel = model;
-                    updateModelButton(model);
-                    vscode.postMessage({ command: 'setModel', model });
-                    closeModelMenu();
+            sessions.forEach(session => {
+                const item = document.createElement('div');
+                item.className = 'history-item';
+                
+                const date = new Date(session.lastModified).toLocaleDateString();
+                
+                item.innerHTML = `
+                    <div class="history-title">${session.title}</div>
+                    <div class="history-date">${date}</div>
+                    <button class="history-delete" title="Delete Chat">🗑️</button>
+                `;
+                
+                item.addEventListener('click', (e) => {
+                    // Ignore if delete button clicked
+                    if (e.target.classList.contains('history-delete')) return;
+                    toggleHistory(false);
+                    vscode.postMessage({ command: 'loadSession', sessionId: session.id });
                 });
-                modelMenu.appendChild(item);
+                
+                const deleteBtn = item.querySelector('.history-delete');
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (confirm('Delete this chat?')) {
+                        vscode.postMessage({ command: 'deleteChat', sessionId: session.id });
+                    }
+                });
+                
+                historyList.appendChild(item);
             });
         }
 
-        input.addEventListener('keydown', e => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                const text = input.value.trim();
-                if (text) {
-                    vscode.postMessage({ command: 'execute', text });
-                    input.value = '';
-                    autoResize();
+        function loadChatSession(session) {
+            stream.innerHTML = '';
+            // Reset state
+            videoContextContainer.style.display = 'none';
+            visionContainer.style.display = 'none';
+            
+            // Render messages
+            session.messages.forEach(msg => {
+                if (msg.role === 'user') {
+                    // Check if it was a command or just text
+                    const type = 'command'; 
+                    addEntry(msg.content, type);
+                } else if (msg.role === 'assistant') {
+                    // Check metadata for rich content
+                    if (msg.metadata) {
+                         const m = msg.metadata;
+                         if (m.type === 'showAnalysis') {
+                             renderAnalysis(m.data, m.metadata);
+                         } else if (m.type === 'visionResult') {
+                             updateVisionUI(m.data);
+                         } else if (m.type === 'addResult') {
+                             addEntry(m.text, 'result');
+                         }
+                    } else if (msg.content) {
+                        addEntry(msg.content, 'result');
+                    }
+                }
+            });
+            
+            // Scroll to bottom
+            stream.scrollTop = stream.scrollHeight;
+        }
+
+        // Listen for messages from extension (openCamera)
+        window.addEventListener('message', event => {
+            const message = event.data;
+            if (message.type === 'visionResult') {
+                cameraStreamContainer.style.display = 'none';
+                updateVisionUI(message.data);
+            }
+            if (message.type === 'videoSelected') {
+                videoContextContainer.style.display = 'block';
+                videoDetails.textContent = message.filename;
+                videoStatus.textContent = 'Initializing Upload...';
+                btnAnalyzeVideo.style.display = 'none';
+                // Hide vision if active (mutually exclusive for simplicity?)
+                // visionContainer.style.display = 'none'; 
+            }
+            if (message.type === 'videoStatus') {
+                videoStatus.textContent = message.status;
+                if (message.ready) {
+                    btnAnalyzeVideo.style.display = 'inline-block';
+                    videoStatus.style.color = 'var(--vscode-testing-iconPassed)';
+                } else if (message.error) {
+                    videoStatus.style.color = 'var(--vscode-errorForeground)';
+                } else {
+                    videoStatus.style.color = 'var(--vscode-charts-blue)';
                 }
             }
-        });
-
-        btnSubmit.addEventListener('click', () => {
-            const text = input.value.trim();
-            if (text) {
-                vscode.postMessage({ command: 'execute', text });
-                input.value = '';
-                autoResize();
+            if (message.type === 'serialResult') {
+                updateSerialUI(message.data);
             }
+            if (message.type === 'serialStatus') {
+                serialStatus.textContent = message.connected ? "Connected" : "Disconnected";
+                serialStatus.style.color = message.connected ? "var(--vscode-testing-iconPassed)" : "var(--vscode-descriptionForeground)";
+                serialLines.textContent = message.lineCount;
+            }
+            if (message.command === 'showStream') {
+                currentStreamUrl = message.url;
+                cameraStreamImg.src = message.url + '/stream';
+                cameraStreamContainer.style.display = 'flex';
+                // Hide vision result while streaming
+                visionContainer.style.display = 'none';
+
+                // Mode handling
+                if (message.mode === 'video') {
+                    btnCaptureStream.style.display = 'none';
+                    videoControlsContainer.style.display = 'flex';
+                    btnRecordStart.style.display = 'block';
+                    btnRecordStop.style.display = 'none';
+                } else {
+                    btnCaptureStream.style.display = 'block';
+                    videoControlsContainer.style.display = 'none';
+                }
+            }
+            // ... existing handlers ...
         });
+        
+        if (btnCaptureStream) {
+            btnCaptureStream.addEventListener('click', () => {
+                if (currentStreamUrl) {
+                    btnCaptureStream.disabled = true;
+                    btnCaptureStream.innerText = "Capturing...";
+                    vscode.postMessage({ command: 'triggerCapture', url: currentStreamUrl });
+                }
+            });
+        }
+        
+        if (btnCloseStream) {
+            btnCloseStream.addEventListener('click', () => {
+                cameraStreamContainer.style.display = 'none';
+                cameraStreamImg.src = ''; // Stop trying to load
+                vscode.postMessage({ command: 'stopStream' });
+            });
+        }
+
+        if (btnRecordStart) {
+            btnRecordStart.addEventListener('click', () => {
+                if (currentStreamUrl) {
+                    btnRecordStart.style.display = 'none';
+                    btnRecordStop.style.display = 'block';
+                    vscode.postMessage({ command: 'startRecording', url: currentStreamUrl });
+                }
+            });
+        }
+
+        if (btnRecordStop) {
+            btnRecordStop.addEventListener('click', () => {
+                if (currentStreamUrl) {
+                    btnRecordStop.innerText = "Stopping...";
+                    btnRecordStop.disabled = true;
+                    vscode.postMessage({ command: 'stopRecording', url: currentStreamUrl });
+                    
+                    // Reset UI after delay (or wait for message)
+                    setTimeout(() => {
+                         cameraStreamContainer.style.display = 'none';
+                         btnRecordStop.innerText = "Stop Recording";
+                         btnRecordStop.disabled = false;
+                         vscode.postMessage({ command: 'stopStream' }); // Close stream after recording
+                    }, 1000);
+                }
+            });
+        }
+
+        function requestModels() {
+            if (modelRequestInFlight) return;
+            modelRequestInFlight = true;
+            modelStatus.textContent = 'Loading...';
+            vscode.postMessage({ command: 'getModels' });
+        }
 
         if (modelRefresh) {
             modelRefresh.addEventListener('click', () => {
@@ -769,40 +759,647 @@
             });
         }
 
-        if (modelButton) {
-            modelButton.addEventListener('click', () => {
-                if (modelMenu) {
-                    modelMenu.classList.toggle('open');
+        if (modelSelect) {
+            modelSelect.addEventListener('change', () => {
+                const value = modelSelect.value;
+                if (value) {
+                    vscode.postMessage({ command: 'setModel', model: value });
                 }
             });
         }
 
-        document.addEventListener('click', (e) => {
-            const target = e.target;
-            if (!modelMenu || !modelButton) return;
-            if (modelMenu.contains(target) || modelButton.contains(target)) return;
-            closeModelMenu();
+        // Handle Video Interaction
+        if (btnVideo) {
+            btnVideo.addEventListener('click', () => {
+                vscode.postMessage({ command: 'selectVideo' });
+            });
+        }
+
+        if (btnAnalyzeVideo) {
+            btnAnalyzeVideo.addEventListener('click', () => {
+                vscode.postMessage({ command: 'analyzeVideo' });
+            });
+        }
+
+        if (btnDiscardVideo) {
+            btnDiscardVideo.addEventListener('click', () => {
+                videoContextContainer.style.display = 'none';
+                vscode.postMessage({ command: 'discardVideo' });
+            });
+        }
+
+
+        // Handle File Upload
+        if (btnCamera) {
+            btnCamera.addEventListener('click', () => {
+                fileInput.click();
+            });
+        }
+
+        if (fileInput) {
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const base64 = event.target.result.split(',')[1];
+                    
+                    // Show loading state
+                    visionContainer.style.display = 'block';
+                    visionDetails.innerText = "Analyzing image...";
+                    visionThumb.innerHTML = `<img src="${event.target.result}" style="width: 100%; height: 100%; object-fit: cover;">`;
+                    
+                    vscode.postMessage({
+                        command: 'analyzeImage',
+                        base64: base64
+                    });
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        if (btnUseReference) {
+            btnUseReference.addEventListener('click', () => {
+                // Visual feedback
+                const isActive = btnUseReference.classList.toggle('active');
+                if (isActive) {
+                    btnUseReference.style.background = 'var(--vscode-button-background)';
+                    btnUseReference.style.color = 'var(--vscode-button-foreground)';
+                    btnUseReference.textContent = "Reference Active";
+                    vscode.postMessage({ command: 'useVisionReference', state: true });
+                } else {
+                    btnUseReference.style.background = 'var(--vscode-button-secondaryBackground)';
+                    btnUseReference.style.color = 'var(--vscode-button-secondaryForeground)';
+                    btnUseReference.textContent = "Use as Reference";
+                    vscode.postMessage({ command: 'useVisionReference', state: false });
+                }
+            });
+        }
+
+        if (btnDiscardVision) {
+            btnDiscardVision.addEventListener('click', () => {
+                visionContainer.style.display = 'none';
+                visionDetails.innerText = "No image analyzed.";
+                visionThumb.innerHTML = '<span style="font-size: 24px;">📷</span>';
+                fileInput.value = ''; // Reset file input
+                
+                // Reset reference button
+                if (btnUseReference) {
+                    btnUseReference.classList.remove('active');
+                    btnUseReference.style.background = 'var(--vscode-button-secondaryBackground)';
+                    btnUseReference.style.color = 'var(--vscode-button-secondaryForeground)';
+                    btnUseReference.textContent = "Use as Reference";
+                }
+
+                vscode.postMessage({ command: 'discardVision' });
+            });
+        }
+
+        if (btnBuild) {
+            btnBuild.addEventListener('click', () => {
+                deploymentStatus.textContent = "Building...";
+                vscode.postMessage({ command: 'buildFirmware' });
+            });
+        }
+        
+        if (btnFlash) {
+            btnFlash.addEventListener('click', () => {
+                deploymentStatus.textContent = "Starting Flash...";
+                vscode.postMessage({ command: 'flashFirmware' });
+            });
+        }
+
+        if (btnOpenSerial) {
+            btnOpenSerial.addEventListener('click', () => {
+                vscode.postMessage({ command: 'executeCommand', text: 'aria.openSerialMonitor' });
+            });
+        }
+
+        if (btnAnalyzeSerial) {
+            btnAnalyzeSerial.addEventListener('click', () => {
+                serialResults.style.display = 'block';
+                serialResults.innerHTML = '<em>Analyzing...</em>';
+                vscode.postMessage({ command: 'executeCommand', text: 'aria.analyzeSerialLogs' });
+            });
+        }
+
+        function updateSerialUI(data) {
+            serialResults.style.display = 'block';
+            let html = '';
+            
+            if (data.thoughtProcess) {
+                html += `
+                    <div class="thought-process-container">
+                        <details open>
+                        <summary class="thought-process-header">
+                             <span class="status-dot"></span> 🧠 Thinking Process
+                        </summary>
+                            <div class="thought-process-content" open>
+                                ${data.thoughtProcess.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+                            </div>
+                        </details>
+                    </div>
+                `;
+            }
+
+            // Since we moved to plain text output, we rely on the thoughtProcess above to show the main content.
+            // If there are legacy structured fields (suspectedIssues, etc.), we can still show them below,
+            // but for the new flow, thoughtProcess contains everything.
+
+            if (data.confidence !== undefined && data.confidence < 1.0) {
+                 html += `<div style="margin-top: 5px; font-size: 0.8em; opacity: 0.8;">Confidence: ${(data.confidence * 100).toFixed(0)}%</div>`;
+            }
+
+            if (data.suspectedIssues && data.suspectedIssues.length > 0) {
+                html += `<div style="margin-top:5px; color: var(--vscode-errorForeground);"><strong>Issues:</strong></div>`;
+                html += `<ul>${data.suspectedIssues.map(i => `<li>${i}</li>`).join('')}</ul>`;
+            }
+
+            if (data.likelyRootCauses && data.likelyRootCauses.length > 0) {
+                html += `<div style="margin-top:5px;"><strong>Root Causes:</strong></div>`;
+                html += `<ul>${data.likelyRootCauses.map(i => `<li>${i}</li>`).join('')}</ul>`;
+            }
+
+            if (data.suggestedFixes && data.suggestedFixes.length > 0) {
+                html += `<div style="margin-top:5px;"><strong>Fixes:</strong></div>`;
+                data.suggestedFixes.forEach(fix => {
+                    html += `<div style="border: 1px solid var(--vscode-panel-border); padding: 5px; margin-top: 5px;">`;
+                    html += `<div>${fix.description}</div>`;
+                    if (fix.diff) {
+                        html += `<button class="btn-preview-diff" data-diff="${encodeURIComponent(fix.diff)}" style="margin-top: 5px; font-size: 0.8em;">Preview Fix</button>`;
+                    }
+                    html += `</div>`;
+                });
+            }
+            
+            serialResults.innerHTML = html;
+
+            // Re-attach diff listeners
+            document.querySelectorAll('.btn-preview-diff').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const diff = decodeURIComponent(e.target.dataset.diff);
+                    vscode.postMessage({ 
+                        command: 'previewDiff', 
+                        diff: diff 
+                    });
+                });
+            });
+        }
+
+        function updateVisionUI(data) {
+            visionContainer.style.display = 'block';
+            
+            // Reset button state
+            if (btnUseReference) {
+                btnUseReference.textContent = "Use as Reference";
+                btnUseReference.disabled = false;
+                btnUseReference.style.opacity = "1";
+            }
+
+            let html = `<strong>Boards:</strong> ${data.detectedBoards.join(', ') || 'None'}<br>`;
+            html += `<strong>Components:</strong> ${data.detectedComponents.join(', ') || 'None'}<br>`;
+            html += `<strong>Confidence:</strong> ${(data.confidence * 100).toFixed(0)}%`;
+            
+            visionDetails.innerHTML = html;
+
+            if (data.mismatchWarning) {
+                visionWarnings.style.display = 'block';
+                visionWarnings.innerText = `⚠️ ${data.mismatchWarning}`;
+            } else {
+                visionWarnings.style.display = 'none';
+            }
+        }
+
+        const AVAILABLE_COMMANDS = [
+            '/analyze',
+            '/selection',
+            '/workspace',
+            '/validate',
+            '/capture',
+            '/help'
+        ];
+
+        let currentFocus = -1;
+
+        // Focus input on load
+        input.focus();
+
+        // Input Event for Autocomplete
+        input.addEventListener('input', function(e) {
+            const val = this.value;
+            closeAllLists();
+            if (!val || !val.startsWith('/')) { return false; }
+            
+            currentFocus = -1;
+            
+            // Filter commands
+            const matches = AVAILABLE_COMMANDS.filter(cmd => cmd.toLowerCase().startsWith(val.toLowerCase()));
+            
+            if (matches.length > 0) {
+                autocompleteList.style.display = 'block';
+                matches.forEach(cmd => {
+                    const item = document.createElement('div');
+                    item.className = 'autocomplete-item';
+                    // Highlight match
+                    item.innerHTML = `<strong>${cmd.substr(0, val.length)}</strong>${cmd.substr(val.length)}`;
+                    item.innerHTML += `<input type='hidden' value='${cmd}'>`;
+                    
+                    item.addEventListener('click', function(e) {
+                        input.value = this.getElementsByTagName('input')[0].value;
+                        closeAllLists();
+                        input.focus();
+                    });
+                    
+                    autocompleteList.appendChild(item);
+                });
+            }
         });
 
-        // History Toggle
-        document.getElementById('btn-toggle-history').addEventListener('click', () => {
-            document.getElementById('history-drawer').classList.add('open');
-            document.getElementById('history-overlay').classList.add('open');
-        });
-        
-        document.getElementById('btn-close-history').addEventListener('click', () => {
-            document.getElementById('history-drawer').classList.remove('open');
-            document.getElementById('history-overlay').classList.remove('open');
-        });
-        
-        document.getElementById('history-overlay').addEventListener('click', () => {
-            document.getElementById('history-drawer').classList.remove('open');
-            document.getElementById('history-overlay').classList.remove('open');
+        // Handle Keys (Enter, Up, Down)
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault(); // Prevent submitting form if we select from list
+                
+                if (currentFocus > -1) {
+                    if (autocompleteList.style.display !== 'none') {
+                        const items = autocompleteList.getElementsByTagName('div');
+                        if (items[currentFocus]) {
+                            items[currentFocus].click();
+                            return; // Don't send command yet, just select
+                        }
+                    }
+                }
+                
+                const text = input.value.trim();
+                if (text) {
+                    closeAllLists();
+                    sendCommand(text);
+                    input.value = '';
+                }
+            } else if (e.key === 'ArrowDown') {
+                currentFocus++;
+                addActive(autocompleteList.getElementsByTagName('div'));
+            } else if (e.key === 'ArrowUp') {
+                currentFocus--;
+                addActive(autocompleteList.getElementsByTagName('div'));
+            } else if (e.key === 'Escape') {
+                closeAllLists();
+            }
         });
 
-        // Initialize
-        autoResize();
+        function addActive(x) {
+            if (!x) return false;
+            removeActive(x);
+            if (currentFocus >= x.length) currentFocus = 0;
+            if (currentFocus < 0) currentFocus = (x.length - 1);
+            x[currentFocus].classList.add("active");
+            // Scroll to view
+            x[currentFocus].scrollIntoView({ block: 'nearest' });
+        }
+
+        function removeActive(x) {
+            for (let i = 0; i < x.length; i++) {
+                x[i].classList.remove("active");
+            }
+        }
+
+        function closeAllLists(elmnt) {
+            autocompleteList.innerHTML = '';
+            autocompleteList.style.display = 'none';
+        }
+
+        // Close list when clicking elsewhere
+        document.addEventListener("click", function (e) {
+            if (e.target !== input && e.target !== autocompleteList) {
+                closeAllLists();
+            }
+        });
+
+        // Send to Extension
+        function sendCommand(text) {
+            // Optimistically show command
+            addEntry(text, 'command');
+            
+            // Send to backend
+            vscode.postMessage({
+                command: 'executeCommand',
+                text: text
+            });
+        }
+
+        // Handle messages from Extension
+        window.addEventListener('message', event => {
+            const message = event.data;
+            switch (message.type) {
+                case 'modelList':
+                    modelRequestInFlight = false;
+                    modelSelect.innerHTML = '';
+                    if (message.models && message.models.length > 0) {
+                        message.models.forEach(m => {
+                            const option = document.createElement('option');
+                            option.value = m;
+                            option.textContent = m;
+                            modelSelect.appendChild(option);
+                        });
+                    }
+                    if (message.selected) {
+                        const exists = Array.from(modelSelect.options).some(o => o.value === message.selected);
+                        if (!exists) {
+                            const option = document.createElement('option');
+                            option.value = message.selected;
+                            option.textContent = message.selected;
+                            modelSelect.appendChild(option);
+                        }
+                        modelSelect.value = message.selected;
+                    }
+                    modelStatus.textContent = message.error ? message.error : `${(message.models || []).length} models`;
+                    break;
+                case 'modelSelected':
+                    modelStatus.textContent = `Selected ${message.model}`;
+                    break;
+                case 'addResult':
+                    addEntry(message.text, 'result');
+                    break;
+                case 'showAnalysis':
+                    renderAnalysis(message.data, message.metadata);
+                    break;
+                case 'showHardwareValidation':
+                    renderHardwareValidation(message.data, message.metadata);
+                    break;
+                case 'visionResult':
+                    updateVisionUI(message.data);
+                    break;
+                case 'buildStatus':
+                    deploymentStatus.textContent = message.status === 'success' ? 'Build Success' : 'Build Failed';
+                    break;
+                case 'flashStatus':
+                    deploymentStatus.textContent = message.status === 'success' ? 'Flash Success' : 'Flash Failed';
+                    break;
+                case 'analysisLoading':
+                    addEntry('<em>Analyzing...</em>', 'result');
+                    break;
+                case 'analysisError':
+                    addEntry(`<span style="color:var(--vscode-errorForeground)">Analysis Failed: ${message.error}</span>`, 'result');
+                    break;
+                case 'successMessage':
+                    addEntry(`<div style="padding: 12px; background: var(--vscode-textBlockQuote-background); border-left: 4px solid var(--vscode-testing-iconPassed); border-radius: 4px; display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 1.2em;">${message.text}</span>
+                    </div>`, 'result');
+                    break;
+                case 'historyList':
+                    renderHistoryList(message.sessions);
+                    break;
+                case 'loadChat':
+                    loadChatSession(message.session);
+                    break;
+                case 'clearContext':
+                    // Clear Vision UI
+                    visionContainer.style.display = 'none';
+                    visionDetails.innerText = "No image analyzed.";
+                    if (visionThumb) visionThumb.innerHTML = '<span style="font-size: 24px;">📷</span>';
+                    if (fileInput) fileInput.value = '';
+                    if (btnUseReference) {
+                        btnUseReference.classList.remove('active');
+                        btnUseReference.style.background = 'var(--vscode-button-secondaryBackground)';
+                        btnUseReference.style.color = 'var(--vscode-button-secondaryForeground)';
+                        btnUseReference.textContent = "Use as Reference";
+                    }
+                    // Clear Video UI
+                    videoContextContainer.style.display = 'none';
+                    if (videoDetails) videoDetails.textContent = "No video selected.";
+                    break;
+            }
+        });
+
+        function addEntry(text, type) {
+            const div = document.createElement('div');
+            div.className = 'entry';
+            
+            if (type === 'command') {
+                const cmdDiv = document.createElement('div');
+                cmdDiv.className = 'entry-command';
+                cmdDiv.textContent = text;
+                div.appendChild(cmdDiv);
+            } else {
+                const resDiv = document.createElement('div');
+                resDiv.className = 'entry-result';
+                resDiv.innerHTML = text; // Allow simple HTML
+                div.appendChild(resDiv);
+            }
+            
+            stream.appendChild(div);
+            stream.scrollTop = stream.scrollHeight;
+        }
+
+        function formatSimpleMarkdown(text) {
+            if (!text) return '';
+            // 1. Escape HTML (basic)
+            let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            
+            // 2. Bold (**text**)
+            html = html.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+            
+            // 3. Italic (*text*)
+            html = html.replace(/\*(.*?)\*/g, '<i>$1</i>');
+            
+            // 4. Code (`text`)
+            html = html.replace(/`(.*?)`/g, '<code style="background:var(--vscode-textCodeBlock-background); padding:2px 4px; border-radius:3px; font-family:var(--vscode-editor-font-family);">$1</code>');
+            
+            // 5. Headers (### Text) - convert to bold block
+            html = html.replace(/^###\s+(.*$)/gm, '<div style="font-weight:600; margin-top:10px; margin-bottom:5px;">$1</div>');
+            
+            return html;
+        }
+
+        function renderAnalysis(analysis, metadata) {
+            const container = document.createElement('div');
+            container.className = 'entry';
+            
+            const card = document.createElement('div');
+            card.className = 'entry-result analysis-card';
+            
+            // Header
+            card.innerHTML = `
+                <h3>${metadata.source === 'selection' ? '🔎 Selection' : metadata.source === 'workspace' ? '📂 Workspace' : metadata.source === 'vision-chat' ? '👁️ Vision Chat' : metadata.source === 'video-analysis' ? '🎥 Video Analysis' : '📄 File'}: ${metadata.filePath || 'General Chat'}</h3>
+                <div style="margin-bottom: 15px; font-size: 1.1em; line-height: 1.5; white-space: pre-wrap;">${formatSimpleMarkdown(analysis.summary)}</div>
+                
+                ${analysis.thoughtProcess ? `
+                <div class="analysis-section">
+                    <details open>
+                        <summary style="cursor: pointer; font-weight: bold; color: var(--vscode-descriptionForeground); display: flex; align-items: center; gap: 5px;">
+                             <span class="status-dot" style="background-color: var(--vscode-charts-blue);"></span> 🧠 ${metadata.model || 'Gemini'} Thinking Process
+                        </summary>
+                        <div style="margin-top: 10px; padding: 10px; background: var(--vscode-editor-inactiveSelectionBackground); border-left: 2px solid var(--vscode-charts-blue); border-radius: 0 4px 4px 0; font-family: var(--vscode-editor-font-family); white-space: pre-wrap; font-size: 0.9em; max-height: 300px; overflow-y: auto; color: var(--vscode-editor-foreground);">
+                            ${analysis.thoughtProcess.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+                        </div>
+                    </details>
+                </div>` : ''}
+
+                <div class="analysis-section">
+                    <strong>⚠️ Issues (${analysis.detectedIssues.length})</strong>
+                    <ul>${analysis.detectedIssues.map(i => `<li>${i}</li>`).join('')}</ul>
+                </div>
+                
+                <div class="analysis-section">
+                    <strong>💡 Recommendations</strong>
+                    <ul>${analysis.recommendations.map(r => `<li>${r}</li>`).join('')}</ul>
+                </div>
+            `;
+
+            // Suggestions
+            if (analysis.suggestions && analysis.suggestions.length > 0) {
+                const bulkActions = document.createElement('div');
+                bulkActions.className = 'analysis-section';
+                
+                const applyAllBtn = document.createElement('button');
+                applyAllBtn.textContent = 'Apply All Fixes';
+                applyAllBtn.onclick = () => {
+                    vscode.postMessage({
+                        command: 'applyAllDiffs',
+                        diffs: analysis.suggestions.map(s => s.diff)
+                    });
+                };
+                
+                bulkActions.appendChild(applyAllBtn);
+                card.appendChild(bulkActions);
+
+                const suggestionsTitle = document.createElement('div');
+                suggestionsTitle.className = 'analysis-section';
+                suggestionsTitle.innerHTML = `<strong>✨ Code Suggestions (${analysis.suggestions.length})</strong>`;
+                card.appendChild(suggestionsTitle);
+
+                analysis.suggestions.forEach((suggestion, index) => {
+                    const sItem = document.createElement('div');
+                    sItem.className = 'suggestion-item';
+                    
+                    const sHeader = document.createElement('div');
+                    sHeader.className = 'suggestion-header';
+                    
+                    const fileBadge = suggestion.filePath 
+                        ? `<span style="font-size:0.8em; opacity:0.7; margin-right:8px; background:var(--vscode-badge-background); color:var(--vscode-badge-foreground); padding:2px 4px; border-radius:3px;">${suggestion.filePath}</span>` 
+                        : '';
+                        
+                    sHeader.innerHTML = `<div style="display:flex; align-items:center; overflow:hidden; text-overflow:ellipsis;">${fileBadge}<span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${suggestion.description}</span></div> <span>▼</span>`;
+                    sHeader.onclick = () => {
+                        const body = sItem.querySelector('.suggestion-body');
+                        body.classList.toggle('open');
+                        sHeader.querySelector('span:last-child').textContent = body.classList.contains('open') ? '▲' : '▼';
+                    };
+
+                    const sBody = document.createElement('div');
+                    sBody.className = 'suggestion-body';
+                    
+                    const actions = document.createElement('div');
+                    actions.className = 'suggestion-actions';
+                    
+                    const btnPreview = document.createElement('button');
+                    btnPreview.textContent = 'Preview Diff';
+                    btnPreview.onclick = () => {
+                        vscode.postMessage({
+                            command: 'previewDiff',
+                            diff: suggestion.diff
+                        });
+                    };
+
+                    actions.appendChild(btnPreview);
+                    
+                    sBody.appendChild(actions);
+                    sItem.appendChild(sHeader);
+                    sItem.appendChild(sBody);
+                    card.appendChild(sItem);
+                });
+            }
+
+            // Footer
+            const footer = document.createElement('div');
+            footer.className = 'analysis-meta';
+            footer.innerHTML = `Confidence: ${(analysis.confidence * 100).toFixed(0)}% | Hardware: ${metadata.hardware || "None"}`;
+            card.appendChild(footer);
+
+            container.appendChild(card);
+            stream.appendChild(container);
+            stream.scrollTop = stream.scrollHeight;
+        }
+
         requestModels();
+
+        function renderHardwareValidation(result, metadata) {
+            const container = document.createElement('div');
+            container.className = 'entry';
+            
+            const card = document.createElement('div');
+            card.className = 'entry-result analysis-card';
+            
+            // Header
+            card.innerHTML = `
+                <h3>🛠️ Hardware Validation</h3>
+                <p><strong>Board:</strong> ${metadata.board}</p>
+                <div style="margin-bottom: 10px;">
+                    <span style="font-weight: bold; color: ${result.status === 'pass' ? 'var(--vscode-testing-iconPassed)' : result.status === 'fail' ? 'var(--vscode-testing-iconFailed)' : 'var(--vscode-charts-yellow)'}; text-transform: uppercase;">
+                        Status: ${result.status}
+                    </span>
+                </div>
+                
+                <div class="analysis-section">
+                    <strong>⚠️ Issues (${result.issues.length})</strong>
+                    <ul>${result.issues.length > 0 ? result.issues.map(i => `<li>${i}</li>`).join('') : '<li>None detected.</li>'}</ul>
+                </div>
+
+                 <div class="analysis-section">
+                    <strong>🔌 Peripherals Detected</strong>
+                    <ul>${result.peripherals.length > 0 ? result.peripherals.map(p => `<li>${p}</li>`).join('') : '<li>None detected.</li>'}</ul>
+                </div>
+                
+                <div class="analysis-section" style="margin-top: 15px;">
+                    <button id="btn-generate-sim" onclick="generateSimulation()">Generate Wokwi Simulation</button>
+                    <button id="btn-open-sim" class="secondary" style="display:none;" onclick="openSimulation()">Open Simulation</button>
+                </div>
+            `;
+            
+            // Store data for callbacks
+            card.dataset.result = JSON.stringify(result);
+            card.dataset.metadata = JSON.stringify(metadata);
+
+            container.appendChild(card);
+            stream.appendChild(container);
+            stream.scrollTop = stream.scrollHeight;
+            
+            // Bind data to window for the button functions to access last result (simple hack)
+            window.lastValidationResult = result;
+            window.lastValidationMetadata = metadata;
+        }
+
+        function generateSimulation() {
+            if (!window.lastValidationResult) return;
+            
+            vscode.postMessage({
+                command: 'generateSimulation',
+                data: window.lastValidationResult,
+                metadata: window.lastValidationMetadata
+            });
+            
+            // Update UI
+            const btnGen = document.getElementById('btn-generate-sim');
+            if (btnGen) {
+                btnGen.textContent = "Simulation Generated!";
+                btnGen.disabled = true;
+            }
+            
+            const btnOpen = document.getElementById('btn-open-sim');
+            if (btnOpen) {
+                btnOpen.style.display = 'inline-block';
+            }
+        }
+
+        function openSimulation() {
+             if (!window.lastValidationMetadata) return;
+             
+             vscode.postMessage({
+                command: 'openSimulation',
+                workspaceRoot: window.lastValidationMetadata.workspaceRoot
+            });
+        }
     </script>
 </body>
 </html>
