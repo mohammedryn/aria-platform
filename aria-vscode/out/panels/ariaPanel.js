@@ -4,7 +4,6 @@ exports.AriaPanel = void 0;
 const vscode = require("vscode");
 const fs = require("fs");
 const path = require("path");
-const os = require("os");
 const chatManager_1 = require("../chat/chatManager");
 const logger_1 = require("../utils/logger");
 const diffEngine_1 = require("../utils/diffEngine");
@@ -16,6 +15,7 @@ const hardwareContext_1 = require("../context/hardwareContext");
 const buildAndFlash_1 = require("../commands/buildAndFlash");
 const platformioManager_1 = require("../firmware/platformioManager");
 const serialManager_1 = require("../serial/serialManager");
+const patchedContentProvider_1 = require("../utils/patchedContentProvider");
 const cameraBridge_1 = require("../vision/cameraBridge");
 class AriaPanel {
     get visionResult() {
@@ -270,6 +270,15 @@ class AriaPanel {
         try {
             const models = await geminiClient_1.GeminiClient.listAvailableModels(apiKey);
             this._panel.webview.postMessage({ type: 'modelList', models, selected });
+            // Restore Chat History on Load
+            const currentSessionId = this._chatManager.getCurrentSessionId();
+            if (currentSessionId) {
+                const session = this._chatManager.getSession(currentSessionId);
+                // Send with isInit flag so frontend knows not to wipe locally restored state if empty
+                if (session) {
+                    this._panel.webview.postMessage({ type: 'loadChat', session: session, isInit: true });
+                }
+            }
         }
         catch (e) {
             this._panel.webview.postMessage({ type: 'modelList', models: [], selected, error: String(e) });
@@ -316,19 +325,26 @@ class AriaPanel {
             vscode.window.showErrorMessage("A.R.I.A: Failed to generate diff preview. The file may have changed.");
             return;
         }
-        // Create Temp Files
-        const tmpDir = os.tmpdir();
-        const originalFile = path.join(tmpDir, `aria_original_${Date.now()}.cpp`); // simplified extension assumption
-        const modifiedFile = path.join(tmpDir, `aria_modified_${Date.now()}.cpp`);
+        // Virtual Diff Provider Logic
         try {
-            fs.writeFileSync(originalFile, originalText);
-            fs.writeFileSync(modifiedFile, patchedText);
-            const originalUri = vscode.Uri.file(originalFile);
-            const modifiedUri = vscode.Uri.file(modifiedFile);
-            await vscode.commands.executeCommand("vscode.diff", originalUri, modifiedUri, "A.R.I.A Suggestion Preview");
+            if (!targetUri) {
+                vscode.window.showErrorMessage("A.R.I.A: Cannot preview diff - Target file not found.");
+                return;
+            }
+            // Create a virtual URI for the "Suggested" side
+            // format: aria-preview://host/filename.ext (Suggested)
+            const filename = path.basename(targetUri.fsPath);
+            const previewUri = vscode.Uri.parse(`${patchedContentProvider_1.PatchedContentProvider.scheme}:/${filename} (Suggested)`);
+            // Update the content in our provider
+            patchedContentProvider_1.PatchedContentProvider.getInstance().setContent(previewUri, patchedText);
+            // Command: vscode.diff(left, right, title)
+            await vscode.commands.executeCommand("vscode.diff", targetUri, // Left side: Actual file on disk
+            previewUri, // Right side: Virtual patched content
+            `${filename} (Original ↔ Suggestion)`);
         }
         catch (e) {
             logger_1.Logger.log(`[AriaPanel] Preview error: ${e}`);
+            vscode.window.showErrorMessage(`A.R.I.A: Preview failed: ${e}`);
         }
     }
     async _handleApplyDiff(diff, description) {
@@ -385,9 +401,45 @@ class AriaPanel {
             return undefined;
         return this._resolveTargetFromPath(this._lastAnalyzedPath);
     }
+    _isSafeToApply(uri, content) {
+        const filename = path.basename(uri.fsPath).toLowerCase();
+        // Block C/C++ code in INI files
+        if (filename.endsWith('.ini')) {
+            // Check for C++ keywords
+            const cppKeywords = [
+                '#include',
+                'void setup',
+                'void loop',
+                'int main',
+                'class ',
+                'namespace ',
+                'std::',
+                'using namespace'
+            ];
+            for (const keyword of cppKeywords) {
+                if (content.includes(keyword)) {
+                    logger_1.Logger.log(`[Safety] Blocked C++ code in ${filename}: Found '${keyword}'`);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
     async _applyDiff(diff) {
         const targetUri = (await this._resolveTargetFromDiff(diff)) ?? (await this._getFallbackTargetUri());
         logger_1.Logger.log(`[A.R.I.A] ApplyDiff Target: ${targetUri?.fsPath ?? 'undefined'}`);
+        if (!targetUri) {
+            logger_1.Logger.log(`[A.R.I.A] ApplyDiff Failed: No target URI resolved.`);
+            return false;
+        }
+        // Safety Check: Prevent overwriting config files with source code
+        // This often happens if the AI fails to generate diff headers and falls back to the open file (e.g. platformio.ini)
+        if (!this._isSafeToApply(targetUri, diff)) {
+            const msg = `Safety Block: Attempted to write C/C++ code to a configuration file (${path.basename(targetUri.fsPath)}). Operation aborted.`;
+            logger_1.Logger.log(`[A.R.I.A] ${msg}`);
+            vscode.window.showErrorMessage(`A.R.I.A: ${msg}`);
+            return false;
+        }
         const editor = (0, editorContext_1.getLastActiveEditor)();
         const document = targetUri ? await vscode.workspace.openTextDocument(targetUri) : editor?.document;
         if (!document) {
@@ -688,7 +740,7 @@ class AriaPanel {
                 mime = 'video/x-msvideo';
             if (ext === '.webm')
                 mime = 'video/webm';
-            const result = await geminiClient_1.GeminiClient.analyzeVideo(this._currentVideoUri, mime, "Analyze this video. The user is describing a hardware issue. Identify the board, check the wiring against standard protocols, and explain why it might not be working based on the visual and audio evidence.");
+            const result = await geminiClient_1.GeminiClient.analyzeVideo(this._currentVideoUri, mime, "Analyze this video. Identify the hardware, board, and connections. If you see any obvious issues or bugs in the setup, point them out.");
             this._panel.webview.postMessage({
                 type: 'showAnalysis',
                 data: result,
@@ -783,12 +835,141 @@ class AriaPanel {
             this._panel.webview.postMessage({ type: 'analysisError', error: "PlatformIO Init Failed. Check logs." });
         }
     }
+    async _handleGenerateImage(prompt) {
+        this._panel.webview.postMessage({ type: 'analysisLoading', message: 'Generating Schematic with Gemini 3 Pro Preview...' });
+        try {
+            logger_1.Logger.log(`[A.R.I.A] Generating Schematic for prompt: ${prompt}`);
+            // Enhanced prompt for schematic context
+            const finalPrompt = `Circuit: ${prompt}. Ensure all connections are logical and professional.`;
+            // Use Gemini 3 Pro (Hybrid Image/SVG Mode)
+            const result = await geminiClient_1.GeminiClient.generateSchematicSVG(finalPrompt);
+            if (result) {
+                logger_1.Logger.log('[A.R.I.A] Schematic generation successful');
+                // Detect type
+                const isSvg = result.trim().startsWith('<svg');
+                this._panel.webview.postMessage({
+                    type: 'showImage',
+                    image: result,
+                    isSvg: isSvg,
+                    prompt: prompt,
+                    metadata: {
+                        model: 'gemini-3-pro-image-preview'
+                    }
+                });
+            }
+            else {
+                logger_1.Logger.log('[A.R.I.A] Schematic generation returned null');
+                this._panel.webview.postMessage({ type: 'analysisError', error: "Schematic generation returned no results." });
+            }
+        }
+        catch (e) {
+            logger_1.Logger.log(`[A.R.I.A] Schematic Gen Failed: ${e}`);
+            this._panel.webview.postMessage({ type: 'analysisError', error: `Schematic Gen Failed: ${e}` });
+        }
+    }
     async _handleCommand(text) {
+        text = text.trim();
         logger_1.Logger.log(`User command: ${text}`);
-        // Save to history
         this._saveUserMessage(text);
+        // 0. Check for Image Generation Intent - PRIORITY
+        // Matches "generate ... schematic", "draw ... diagram", "create ... image" anywhere in text
+        // Also catches "can you please generate..."
+        const imageGenRegex = /(?:generate|draw|create|make).{0,70}(?:schematic|circuit|diagram|image|picture|pcb)/i;
+        if (imageGenRegex.test(text) && !text.startsWith('/') && !text.startsWith('@')) {
+            logger_1.Logger.log('[A.R.I.A] Image Intent Detected');
+            this._handleGenerateImage(text);
+            return;
+        }
+        // 1. Handle Action Commands (starting with / or @) - PRIORITY
+        // This must come first so users can always execute commands even with context active.
+        if (text.startsWith('/') || text.startsWith('@')) {
+            const cmd = text.split(' ')[0].toLowerCase().replace('@', '/'); // Normalize @ to / for handling
+            switch (cmd) {
+                case '/help':
+                    const response = "<b>Available Commands:</b><br><code>/analyze</code> - Analyze current file<br><code>/selection</code> - Analyze selected code<br><code>/workspace</code> - Analyze entire workspace<br><code>/validate</code> - Validate Hardware & Simulate<br><code>/capture</code> - Capture Image<br><code>/video</code> - Capture Video<br><code>/fault</code> - Explain Bare Metal Faults<br><code>@build</code> - Build Firmware<br><code>@flash</code> - Flash Firmware";
+                    this._panel.webview.postMessage({ type: 'addResult', text: response });
+                    break;
+                case '/analyze':
+                    vscode.commands.executeCommand('aria.analyzeFile');
+                    break;
+                case '/selection':
+                    vscode.commands.executeCommand('aria.analyzeSelection');
+                    break;
+                case '/workspace':
+                    vscode.commands.executeCommand('aria.analyzeWorkspace');
+                    break;
+                case '/validate':
+                    vscode.commands.executeCommand('aria.validateHardware');
+                    break;
+                case '/capture':
+                case '/camera':
+                    vscode.commands.executeCommand('aria.captureImage');
+                    break;
+                // Corrected command ID
+                case '/video':
+                    vscode.commands.executeCommand('aria.captureVideo');
+                    break;
+                // New Action Mappings
+                case '/build':
+                    vscode.commands.executeCommand('aria.buildFirmware');
+                    break;
+                case '/flash':
+                    vscode.commands.executeCommand('aria.flashFirmware');
+                    break;
+                case '/serial':
+                    vscode.commands.executeCommand('aria.openSerialMonitor');
+                    break;
+                case '/logs':
+                    vscode.commands.executeCommand('aria.analyzeSerialLogs');
+                    break;
+                case '/clear':
+                    this._visionReferenceActive = false;
+                    this._currentVisionImage = null;
+                    this._currentVideoUri = undefined;
+                    this._panel.webview.postMessage({ type: 'clearContext' });
+                    this._panel.webview.postMessage({ type: 'addResult', text: "<i>Context cleared. Vision/Video references removed.</i>" });
+                    break;
+                case '/fault':
+                    this._panel.webview.postMessage({ type: 'addResult', text: "<b>Bare Metal Fault Analysis</b><br>Paste your error registers (e.g. <code>HFSR: 0x40000000</code>) or ask <i>'What is a Bus Fault?'</i> directly in the chat." });
+                    break;
+                case '/init':
+                    const args = text.split(/\s+/).slice(1);
+                    const board = args[0] || "";
+                    await this._handleInitProject(board);
+                    break;
+                case '/schematic':
+                case '/image':
+                case '/draw':
+                    const prompt = text.replace(/^\/(schematic|image|draw)\s*/i, '');
+                    if (!prompt) {
+                        this._panel.webview.postMessage({ type: 'addResult', text: "Please provide a description. Usage: <code>/schematic Arduino toggling LED</code>" });
+                        return;
+                    }
+                    this._handleGenerateImage(prompt);
+                    break;
+                default:
+                    // Only return if it matches a known command structure but not a known command
+                    // Actually, if it starts with /, it's a command. If unknown, show error.
+                    // If starts with @, it might be @workspace which is just context.
+                    if (cmd.startsWith('/')) {
+                        this._panel.webview.postMessage({ type: 'addResult', text: `Unknown command: ${cmd}` });
+                        return;
+                    }
+                    // For @, we let it fall through to chat if it's just a context tag
+                    break;
+            }
+            // If we matched an action (switch case executed), we stop unless we break out validation
+            // The simple heuristic: if the switch handled it, we return.
+            // But we can't easily check that here without a flag. 
+            // Better: all known commands above 'break' the switch.
+            // If we are here, and it was a known command, we should return.
+            // Let's refine the switch to return directly.
+            if (['/help', '/analyze', '/selection', '/workspace', '/validate', '/capture', '/camera', '/video', '/build', '/flash', '/serial', '/logs', '/clear', '/fault', '/init', '/schematic', '/image', '/draw'].includes(cmd)) {
+                return;
+            }
+        }
         // Vision Context Chat (if active and image exists)
-        if (this._visionReferenceActive && this._currentVisionImage && !text.startsWith('/')) {
+        if (this._visionReferenceActive && this._currentVisionImage) {
             this._panel.webview.postMessage({ type: 'analysisLoading', message: 'Analyzing image with Gemini 3 Pro...' });
             try {
                 const result = await geminiClient_1.GeminiClient.chatWithImage(this._currentVisionImage, text);
@@ -838,120 +1019,77 @@ class AriaPanel {
             return;
         }
         let response = "";
-        if (text.startsWith('/')) {
-            const cmd = text.split(' ')[0].toLowerCase();
-            switch (cmd) {
-                case '/help':
-                    response = "<b>Available Commands:</b><br><code>/analyze</code> - Analyze current file<br><code>/selection</code> - Analyze selected code<br><code>/workspace</code> - Analyze entire workspace<br><code>/validate</code> - Validate Hardware & Simulate<br><code>/capture</code> - Capture Image<br><code>/video</code> - Capture Video<br><code>/fault</code> - Explain Bare Metal Faults";
-                    this._panel.webview.postMessage({ type: 'addResult', text: response });
-                    break;
-                case '/analyze':
-                    vscode.commands.executeCommand('aria.analyzeFile');
-                    break;
-                case '/selection':
-                    vscode.commands.executeCommand('aria.analyzeSelection');
-                    break;
-                case '/workspace':
-                    vscode.commands.executeCommand('aria.analyzeWorkspace');
-                    break;
-                case '/validate':
-                    vscode.commands.executeCommand('aria.validateHardware');
-                    break;
-                case '/capture':
-                    vscode.commands.executeCommand('aria.captureImage');
-                    break;
-                case '/video':
-                    vscode.commands.executeCommand('aria.captureVideo');
-                    break;
-                case '/fault':
-                    this._panel.webview.postMessage({ type: 'addResult', text: "<b>Bare Metal Fault Analysis</b><br>Paste your error registers (e.g. <code>HFSR: 0x40000000</code>) or ask <i>'What is a Bus Fault?'</i> directly in the chat." });
-                    break;
-                case '/clear':
-                    this._visionReferenceActive = false;
-                    this._currentVisionImage = null;
-                    this._currentVideoUri = undefined;
-                    this._panel.webview.postMessage({ type: 'clearContext' });
-                    this._panel.webview.postMessage({ type: 'addResult', text: "<i>Context cleared. Vision/Video references removed.</i>" });
-                    break;
-                case '/init':
-                    // Parse arguments from text (e.g. "/init teensy41")
-                    const args = text.split(/\s+/).slice(1);
-                    const board = args[0] || "";
-                    await this._handleInitProject(board);
-                    break;
-                default:
-                    response = `Unknown command: ${cmd}`;
-                    this._panel.webview.postMessage({ type: 'addResult', text: response });
+        // (Legacy command block removed)
+        // Legacy fallback for natural language requests
+        // Check for natural language PIO setup intent
+        // Matches "setup platformio for teensy41" or "set platformio..."
+        const pioMatch = text.match(/(?:setup|set)\s+platformio.*?(?:board|for)\s+([a-zA-Z0-9_-]+)/i) ||
+            (text.toLowerCase().match(/(?:setup|set)\s+platformio/) ? [text, ""] : null);
+        if (pioMatch) {
+            let board = pioMatch[1]?.trim() || "";
+            // Filter out common false positives from loose grammar
+            if (board.length < 3 || ['in', 'this', 'here', 'folder'].includes(board.toLowerCase())) {
+                board = "";
             }
+            await this._handleInitProject(board);
+            return;
         }
-        else {
-            // Check for natural language PIO setup intent
-            // Matches "setup platformio for teensy41" or "set platformio..."
-            const pioMatch = text.match(/(?:setup|set)\s+platformio.*?(?:board|for)\s+([a-zA-Z0-9_-]+)/i) ||
-                (text.toLowerCase().match(/(?:setup|set)\s+platformio/) ? [text, ""] : null);
-            if (pioMatch) {
-                let board = pioMatch[1]?.trim() || "";
-                // Filter out common false positives from loose grammar
-                if (board.length < 3 || ['in', 'this', 'here', 'folder'].includes(board.toLowerCase())) {
-                    board = "";
-                }
-                await this._handleInitProject(board);
-                return;
+        // New: Route general queries to GeminiClient.chat()
+        this._panel.webview.postMessage({ type: 'analysisLoading', message: 'Processing your question...' });
+        try {
+            // Inject context (active file, hardware)
+            let activeEditor = (0, editorContext_1.getLastActiveEditor)();
+            if (!activeEditor && vscode.window.visibleTextEditors.length > 0) {
+                activeEditor = vscode.window.visibleTextEditors[0];
             }
-            // New: Route general queries to GeminiClient.chat()
-            this._panel.webview.postMessage({ type: 'analysisLoading', message: 'Processing your question...' });
-            try {
-                // Inject context (active file, hardware)
-                let activeEditor = (0, editorContext_1.getLastActiveEditor)();
-                if (!activeEditor && vscode.window.visibleTextEditors.length > 0) {
-                    activeEditor = vscode.window.visibleTextEditors[0];
-                }
-                if (activeEditor) {
-                    // Update last analyzed path so fallback logic works for rewrites
-                    this._lastAnalyzedPath = vscode.workspace.asRelativePath(activeEditor.document.uri);
-                }
-                const context = {
-                    code: activeEditor?.document.getText(),
-                    language: activeEditor?.document.languageId,
-                    filePath: activeEditor?.document.uri.fsPath,
-                    hardwareContext: await hardwareContext_1.HardwareContext.scan().then(hw => hw.summary)
-                };
-                // SPECIAL HANDLING: PlatformIO Configuration Context
-                // If the user wants to change board/config, we MUST inject platformio.ini content
-                // because the active file is likely main.cpp or something else.
-                const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-                if (root) {
-                    const pioPath = path.join(root, 'platformio.ini');
-                    if (fs.existsSync(pioPath)) {
-                        try {
-                            const pioContent = fs.readFileSync(pioPath, 'utf8');
-                            // Append to code context or hardware context?
-                            // Let's create a dedicated 'projectConfig' field in context or append to hardwareContext
-                            // Appending to hardwareContext is safest for now as it gets rendered into the prompt
-                            context.hardwareContext += `\n\n[Active platformio.ini Configuration]:\n${pioContent}\n(You can edit this file using a Unified Diff if requested)`;
-                            context.pioConfig = pioContent; // For specialized prompt logic if needed
-                        }
-                        catch (e) {
-                            logger_1.Logger.log(`[A.R.I.A] Failed to read platformio.ini for context: ${e}`);
-                        }
+            if (activeEditor) {
+                // Update last analyzed path so fallback logic works for rewrites
+                this._lastAnalyzedPath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+            }
+            const context = {
+                code: activeEditor?.document.getText(),
+                language: activeEditor?.document.languageId,
+                filePath: activeEditor?.document.uri.fsPath,
+                hardwareContext: await hardwareContext_1.HardwareContext.scan().then(hw => hw.summary)
+            };
+            // SPECIAL HANDLING: PlatformIO Configuration Context
+            // If the user wants to change board/config, we MUST inject platformio.ini content
+            // because the active file is likely main.cpp or something else.
+            const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (root) {
+                const pioPath = path.join(root, 'platformio.ini');
+                if (fs.existsSync(pioPath)) {
+                    try {
+                        const pioContent = fs.readFileSync(pioPath, 'utf8');
+                        // Append to code context or hardware context?
+                        // Let's create a dedicated 'projectConfig' field in context or append to hardwareContext
+                        // Appending to hardwareContext is safest for now as it gets rendered into the prompt
+                        context.hardwareContext += `\n\n[Active platformio.ini Configuration]:\n${pioContent}\n(You can edit this file using a Unified Diff if requested)`;
+                        context.pioConfig = pioContent; // For specialized prompt logic if needed
+                    }
+                    catch (e) {
+                        logger_1.Logger.log(`[A.R.I.A] Failed to read platformio.ini for context: ${e}`);
                     }
                 }
-                const result = await geminiClient_1.GeminiClient.chat(text, context);
-                this._panel.webview.postMessage({
-                    type: 'showAnalysis',
-                    data: result,
-                    metadata: {
-                        source: 'general-chat',
-                        filePath: context.filePath ? path.basename(context.filePath) : "General Chat",
-                        fullPath: context.filePath, // Preserve full path for target resolution
-                        hardware: context.hardwareContext ? "Detected" : "None",
-                        model: 'gemini-3-pro-preview'
-                    }
-                });
             }
-            catch (e) {
-                this._panel.webview.postMessage({ type: 'analysisError', error: String(e) });
-            }
+            const result = await geminiClient_1.GeminiClient.chat(text, context);
+            // Check if this is just a casual chat (no code fixes proposed)
+            const isCasual = (!result.suggestions || result.suggestions.length === 0) &&
+                (!result.detectedIssues || result.detectedIssues.length === 0);
+            this._panel.webview.postMessage({
+                type: 'showAnalysis',
+                data: result,
+                metadata: {
+                    source: isCasual ? 'chat' : 'general-chat',
+                    filePath: context.filePath ? path.basename(context.filePath) : "General Chat",
+                    fullPath: context.filePath, // Preserve full path for target resolution
+                    hardware: context.hardwareContext ? "Detected" : "None",
+                    model: 'gemini-3-pro-preview'
+                }
+            });
+        }
+        catch (e) {
+            this._panel.webview.postMessage({ type: 'analysisError', error: String(e) });
         }
     }
     async analyzeImage(base64Image) {

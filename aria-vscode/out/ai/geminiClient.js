@@ -104,12 +104,14 @@ class GeminiClient {
         }
         const prompt = {
             system_instruction: {
-                parts: { text: "You are A.R.I.A, a hardware-aware code analysis engine. Analyze the entire project context. Find cross-file issues, logical errors, and hardware mismatches. " +
+                parts: {
+                    text: "You are A.R.I.A, a hardware-aware code analysis engine. Analyze the entire project context. Find cross-file issues, logical errors, and hardware mismatches. " +
                         "Use Markdown for formatting. \n\n" +
                         "IMPORTANT OUTPUT FORMAT:\n" +
                         "1. Start with a section header '# Thinking Process' and explain your analysis.\n" +
                         "2. Follow with a section header '# Final Summary' containing the direct answer to the user.\n" +
-                        "This structure is REQUIRED." }
+                        "This structure is REQUIRED."
+                }
             },
             contents: {
                 parts: {
@@ -222,12 +224,14 @@ class GeminiClient {
         const codeLabel = input.source === 'terminal' ? "TERMINAL OUTPUT" : "CODE";
         return {
             system_instruction: {
-                parts: { text: "You are A.R.I.A, a hardware-aware code analysis engine. " +
+                parts: {
+                    text: "You are A.R.I.A, a hardware-aware code analysis engine. " +
                         "Use Markdown for formatting. \n\n" +
                         "IMPORTANT OUTPUT FORMAT:\n" +
                         "1. Start with a section header '# Thinking Process' and explain your analysis.\n" +
                         "2. Follow with a section header '# Final Summary' containing the direct answer to the user.\n" +
-                        "This structure is REQUIRED." }
+                        "This structure is REQUIRED."
+                }
             },
             contents: {
                 parts: {
@@ -323,8 +327,11 @@ class GeminiClient {
                 confidence: 0
             };
         }
-        const systemInstruction = "You are A.R.I.A, a hardware-aware AI assistant. You are analyzing a video provided by the user. " +
-            "The user is describing a hardware issue. Identify the board, wiring, and problems based on visual and audio evidence. " +
+        const systemInstruction = "You are A.R.I.A, an AI assistant. You are analyzing a video provided by the user. " +
+            "Answer the user's question based on the visual and audio evidence.\n" +
+            "CRITICAL INSTRUCTION: First, determine if the video contains electronics, hardware, or code.\n" +
+            "- If YES: Identify the board, wiring, and any issues.\n" +
+            "- If NO: Simply describe what is happening in the video naturally (e.g., 'You are smiling at the camera'). DO NOT hallucinate hardware if none is visible.\n" +
             "Use Markdown for formatting. \n\n" +
             "IMPORTANT OUTPUT FORMAT:\n" +
             "1. Start with a section header '# Thinking Process' and explain your analysis.\n" +
@@ -496,13 +503,15 @@ class GeminiClient {
         const systemInstruction = "You are A.R.I.A, a hardware-aware AI assistant. " +
             "You are pair-programming with the user. " +
             "You are an expert in Bare Metal Firmware Debugging (ARM Cortex-M, ESP32, AVR) and PlatformIO Configuration. " +
-            "If the user provides error codes or register dumps (e.g., HFSR, CFSR, MMFAR, BFAR), DECODE them bit-by-bit. " +
-            "Explain faults like HardFault, BusFault, UsageFault, and MemManage Fault in detail. " +
+            "\n\n**INTERACTION GUIDELINES:**\n" +
+            "1. **Casual Chat:** If the user says 'hi', 'wassup', or asks a general question, respond conversationally. **DO NOT** analyze the active code or offer fixes unless explicitly asked.\n" +
+            "2. **Code Help:** If the user asks about bugs, errors, or how to do something, use the provided context to give expert technical advice.\n" +
+            "3. **Debugging:** If the user provides error codes or register dumps (e.g., HFSR, CFSR), DECODE them bit-by-bit and explain faults in detail.\n\n" +
             "Use Markdown for formatting. \n\n" +
             "IMPORTANT OUTPUT FORMAT:\n" +
             "1. Start with a section header '# Thinking Process' and explain your analysis.\n" +
             "2. Follow with a section header '# Final Summary' containing the direct answer.\n" +
-            "3. If code changes are needed, provide a '# Suggestions' section.\n" +
+            "3. If (and ONLY if) code changes are explicitly needed or requested, provide a '# Suggestions' section.\n" +
             "   - **Option A (Small Changes & Config):** Use a Unified Diff block (```diff). Start with '--- <filename>', '+++ <filename>', and use '@@ ... @@' hunks. **You CAN and SHOULD edit 'platformio.ini' using this method if the user asks to change boards.**\n" +
             "   - **Option B (Full Rewrite):** If changing more than 50% of the file, rewriting completely, or **switching hardware platforms** (e.g. Teensy to ESP32), provide the **FULL NEW CODE** in a standard code block. **To ensure the system updates the correct file, you MUST start the code block with standard diff headers:**\n" +
             "     ```\n" +
@@ -530,8 +539,8 @@ class GeminiClient {
             contents: {
                 parts: {
                     text: `${contextText}USER QUERY:\n${userPrompt}\n\n` +
-                        `Answer the user's query based on the context provided (if any). ` +
-                        `If the user asks to fix code or you find bugs, provide a unified diff in the response.`
+                        `Answer the user's query. Use the context ONLY if relevant to the query (e.g. if the user asks about the code or errors). ` +
+                        `Do not offer to fix the code if the user is just chatting.`
                 }
             }
         };
@@ -565,7 +574,8 @@ class GeminiClient {
         apiKey = apiKey.trim();
         const prompt = {
             system_instruction: {
-                parts: { text: "You are A.R.I.A, a hardware-aware debugging assistant. " +
+                parts: {
+                    text: "You are A.R.I.A, a hardware-aware debugging assistant. " +
                         "You are an expert in Bare Metal Firmware Debugging. " +
                         "Analyze Serial Logs for crash dumps, stack traces, and fault registers (HardFault, BusFault, etc.). " +
                         "If you see register values (e.g. 0x00020000), explain what the bits mean. " +
@@ -573,7 +583,8 @@ class GeminiClient {
                         "IMPORTANT OUTPUT FORMAT:\n" +
                         "1. Start with a section header '# Thinking Process' and explain your analysis.\n" +
                         "2. Follow with a section header '# Final Summary' containing the direct answer to the user.\n" +
-                        "This structure is REQUIRED." }
+                        "This structure is REQUIRED."
+                }
             },
             contents: {
                 parts: {
@@ -709,16 +720,26 @@ class GeminiClient {
             }
             const correctedIndex = text.search(/#+\s*Corrected Code|Corrected Code/i);
             const isLikelyCode = (content) => {
-                if (content.length < 50)
-                    return false;
+                if (content.length < 20)
+                    return false; // Too short
                 if (content.includes('```'))
-                    return false;
+                    return false; // Nested blocks
+                // Reject pure Markdown/Prose blocks
+                if (/^###\s+/.test(content))
+                    return false; // Markdown Headers
                 if (/Thinking Process|Summary|Recommendations/i.test(content))
                     return false;
-                if (content.startsWith('---') || content.startsWith('+++'))
-                    return false;
+                // If it looks like a diff, it's good
+                if (content.startsWith('---') || content.startsWith('+++') || content.startsWith('@@'))
+                    return true;
+                // If it contains C++ structured elements, it's good
                 if (/#include\s+<|void\s+setup\s*\(|int\s+main\s*\(|class\s+\w+|#if\s+defined/i.test(content))
                     return true;
+                // Reject if it has too many markdown list items relative to code lines
+                const lines = content.split('\n');
+                const listItems = lines.filter(l => l.trim().startsWith('- ') || l.trim().match(/^\d+\./)).length;
+                if (listItems > lines.length / 2)
+                    return false;
                 return /[;{}]/.test(content);
             };
             let selected = null;
@@ -749,9 +770,43 @@ class GeminiClient {
                 }
             }
             if (selected) {
+                // Formatting Fix: Sometimes AI puts "### Option B" inside the code block. 
+                // We strip lines that look like Markdown headers or non-code explanation at the start.
+                const lines = selected.split('\n');
+                const cleanLines = [];
+                let inCode = false;
+                for (const line of lines) {
+                    // Skip markdown headers or bold text at the start if we haven't seen code yet
+                    if (!inCode) {
+                        if (/^#{1,6}\s/.test(line))
+                            continue; // Header
+                        if (/^\*\*.+\*\*$/.test(line))
+                            continue; // Bold Title
+                        if (/^This implementation/.test(line))
+                            continue; // Common conversational start
+                        // Detect start of actual code
+                        if (line.trim().startsWith('#') || // Preprocessor
+                            line.trim().startsWith('//') || // Comment
+                            line.trim().includes(';') ||
+                            line.trim().includes('{') ||
+                            line.trim().startsWith('using') ||
+                            line.trim().startsWith('class') ||
+                            line.trim().startsWith('void') ||
+                            line.trim().startsWith('int') ||
+                            line.trim().startsWith('---') || // Diff
+                            line.trim().length === 0) { // Allow empty lead lines
+                            inCode = true;
+                        }
+                        else {
+                            // potential garbage line
+                            continue;
+                        }
+                    }
+                    cleanLines.push(line);
+                }
                 result.suggestions.push({
                     description: "Full File Rewrite (All Fixes Applied)",
-                    diff: selected
+                    diff: cleanLines.join('\n').trim()
                 });
             }
         }
@@ -995,6 +1050,7 @@ class GeminiClient {
         }
         const data = await response.json();
         const models = Array.isArray(data.models) ? data.models : [];
+        logger_1.Logger.log(`[A.R.I.A] Available Models: ${models.map((m) => m.name).join(', ')}`);
         return models
             .map((m) => (m.name || '').replace('models/', ''))
             .filter((name) => name.startsWith('gemini'));
@@ -1006,6 +1062,114 @@ class GeminiClient {
             recommendations: ["Set GEMINI_API_KEY environment variable", "Check internet connection"],
             confidence: 0.0
         };
+    }
+    static async generateImage(prompt) {
+        const config = vscode.workspace.getConfiguration('aria');
+        let apiKey = config.get('apiKey') || process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+            throw new Error("Gemini API Key missing.");
+        }
+        apiKey = apiKey.trim();
+        // Imagen 4 Endpoint (Found in user logs)
+        const model = "imagen-4.0-fast-generate-001";
+        const url = `${this.BASE_URL}/${model}:predict?key=${apiKey}`;
+        const payload = {
+            instances: [
+                { prompt: prompt }
+            ],
+            parameters: {
+                sampleCount: 1,
+                aspectRatio: "16:9" // Good for schematics
+            }
+        };
+        try {
+            logger_1.Logger.log(`[A.R.I.A] Generating image with ${model}... Prompt: ${prompt.substring(0, 50)}...`);
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`Image generation failed: ${response.status} - ${errText}`);
+            }
+            const data = await response.json();
+            // Response format: { predictions: [ { bytesBase64Encoded: "..." } ] }
+            if (data.predictions && data.predictions.length > 0) {
+                return data.predictions[0].bytesBase64Encoded;
+            }
+            else {
+                return null;
+            }
+        }
+        catch (e) {
+            logger_1.Logger.log(`[A.R.I.A] Image Gen Error: ${e}`);
+            throw e;
+        }
+    }
+    static async generateSchematicSVG(prompt) {
+        const config = vscode.workspace.getConfiguration('aria');
+        let apiKey = config.get('apiKey') || process.env.GEMINI_API_KEY;
+        // User requested specifically "gemini-3-pro-image-preview" for the hackathon
+        const model = "gemini-3-pro-image-preview";
+        if (!apiKey)
+            throw new Error("Gemini API Key missing.");
+        const url = `${this.BASE_URL}/${model}:generateContent?key=${apiKey}`;
+        const systemPrompt = `You are an expert Electronics Design Engineer.
+        Generate a high-fidelity, professional schematic for the user's request.
+        
+        Preferred Output: A generated IMAGE (if supported).
+        Fallback Output: Precision SVG code (if image generation is not available).
+        
+        SVG Style Guide (if generating SVG):
+        - Background: White.
+        - Lines: Black, 2px stroke.
+        - Style: Technical, CAD-like, IEEE symbols.
+        - Layout: Align components to grid, no overlapping labels.
+        
+        Request: ${prompt}`;
+        const payload = {
+            contents: [{ parts: [{ text: systemPrompt }] }],
+            generationConfig: {
+                temperature: 0.2, // Reverting to low temp for precision
+                maxOutputTokens: 8192
+            }
+        };
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+                throw new Error(`Gemini API Error: ${response.status} ${response.statusText}`);
+            }
+            const data = await response.json();
+            logger_1.Logger.log(`[A.R.I.A] Raw Gemini Response: ${JSON.stringify(data).substring(0, 500)}...`);
+            const candidate = data.candidates?.[0]?.content?.parts?.[0];
+            // 1. Check for Native Image (inlineData) - Gemini uses camelCase
+            if (candidate?.inlineData && candidate?.inlineData?.data) {
+                // Return formatted as base64 string
+                logger_1.Logger.log('[A.R.I.A] Native Image generation successful (inlineData detected)');
+                return `data:${candidate.inlineData.mimeType};base64,${candidate.inlineData.data}`;
+            }
+            // 2. Check for Text (SVG)
+            let text = candidate?.text || "";
+            // Clean up code blocks
+            text = text.replace(/```svg/g, '').replace(/```xml/g, '').replace(/```/g, '').trim();
+            if (text.includes('<svg')) {
+                return text;
+            }
+            // 3. Fallback/Error
+            if (!text && !candidate) {
+                throw new Error("No image or SVG generated.");
+            }
+            return text; // Return text processing instruction or error message as text
+        }
+        catch (e) {
+            logger_1.Logger.log(`[A.R.I.A] SVG Gen Error: ${e}`);
+            throw e;
+        }
     }
 }
 exports.GeminiClient = GeminiClient;

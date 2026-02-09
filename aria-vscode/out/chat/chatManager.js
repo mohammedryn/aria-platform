@@ -8,41 +8,72 @@ class ChatManager {
     constructor(context) {
         this._currentSessionId = null;
         this._sessions = new Map();
+        this._context = context;
         // Use workspace storage if available, otherwise global (fallback)
         // We prefer workspace storage to keep context relevant to the project.
         const storageUri = context.storageUri || context.globalStorageUri;
         this._storagePath = path.join(storageUri.fsPath, 'chat_history.json');
         // Ensure directory exists
         if (!fs.existsSync(storageUri.fsPath)) {
-            fs.mkdirSync(storageUri.fsPath, { recursive: true });
+            try {
+                fs.mkdirSync(storageUri.fsPath, { recursive: true });
+            }
+            catch (e) {
+                logger_1.Logger.log(`[ChatManager] Failed to create storage directory: ${e}`);
+            }
         }
         this.loadSessions();
     }
     loadSessions() {
         try {
+            let loaded = false;
+            // 1. Try File Storage
             if (fs.existsSync(this._storagePath)) {
                 const data = fs.readFileSync(this._storagePath, 'utf8');
                 const sessions = JSON.parse(data);
-                this._sessions.clear();
-                sessions.forEach(s => this._sessions.set(s.id, s));
-                // Sort by last modified (desc)
-                const sorted = sessions.sort((a, b) => b.lastModified - a.lastModified);
-                if (sorted.length > 0) {
-                    // Don't auto-select, let UI decide, but we know what's available
+                if (sessions && sessions.length > 0) {
+                    this._sessions.clear();
+                    sessions.forEach(s => this._sessions.set(s.id, s));
+                    logger_1.Logger.log(`[ChatManager] Loaded ${sessions.length} sessions from file.`);
+                    loaded = true;
+                }
+            }
+            // 2. Fallback to GlobalState (Memento) if file failed or empty
+            if (!loaded) {
+                const backup = this._context.globalState.get('aria_chat_history');
+                if (backup && backup.length > 0) {
+                    this._sessions.clear();
+                    backup.forEach(s => this._sessions.set(s.id, s));
+                    logger_1.Logger.log(`[ChatManager] Loaded ${backup.length} sessions from GlobalState backup.`);
+                    loaded = true;
                 }
             }
         }
         catch (e) {
             logger_1.Logger.log(`[ChatManager] Failed to load history: ${e}`);
+            // Last ditch: Try GlobalState even if file read threw error
+            const backup = this._context.globalState.get('aria_chat_history');
+            if (backup && backup.length > 0) {
+                this._sessions.clear();
+                backup.forEach(s => this._sessions.set(s.id, s));
+            }
         }
     }
     saveSessions() {
+        const sessions = Array.from(this._sessions.values());
+        // 1. Save to File
         try {
-            const sessions = Array.from(this._sessions.values());
             fs.writeFileSync(this._storagePath, JSON.stringify(sessions, null, 2));
         }
         catch (e) {
-            logger_1.Logger.log(`[ChatManager] Failed to save history: ${e}`);
+            logger_1.Logger.log(`[ChatManager] Failed to save history to file: ${e}`);
+        }
+        // 2. Save to GlobalState (Backup)
+        try {
+            this._context.globalState.update('aria_chat_history', sessions);
+        }
+        catch (e) {
+            logger_1.Logger.log(`[ChatManager] Failed to save history to GlobalState: ${e}`);
         }
     }
     getSessions() {

@@ -25,6 +25,8 @@ function registerCommands(context) {
         { id: 'aria.captureVideo', handler: captureVideo_1.captureVideo },
         { id: 'aria.setApiKey', handler: setApiKey_1.setApiKey },
         { id: 'aria.buildAndFlash', handler: buildAndFlash_1.buildAndFlash },
+        { id: 'aria.buildFirmware', handler: buildAndFlash_1.runBuild },
+        { id: 'aria.flashFirmware', handler: buildAndFlash_1.runFlash },
         { id: 'aria.openSerialMonitor', handler: openSerialMonitor_1.openSerialMonitorCommand },
         { id: 'aria.analyzeSerialLogs', handler: analyzeSerialLogs_1.analyzeSerialLogsCommand },
         { id: 'aria.analyzeTerminal', handler: analyzeTerminal_1.analyzeTerminalCommand }

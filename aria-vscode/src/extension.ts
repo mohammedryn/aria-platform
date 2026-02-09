@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { Logger } from './utils/logger';
+import { PatchedContentProvider } from './utils/patchedContentProvider';
 import { registerCommands } from './commands';
 import { activateEditorTracking } from './utils/editorContext';
 
@@ -18,6 +19,9 @@ export function activate(context: vscode.ExtensionContext) {
     statusBarItem.tooltip = "Open A.R.I.A. Copilot";
     statusBarItem.show();
     context.subscriptions.push(statusBarItem);
+
+    // 4. Register Patched Content Provider for Diffs
+    PatchedContentProvider.register(context);
 
     // 4. File Awareness (Track Active Editor)
     activateEditorTracking(context);

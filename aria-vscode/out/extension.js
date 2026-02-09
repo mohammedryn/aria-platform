@@ -4,6 +4,7 @@ exports.activate = activate;
 exports.deactivate = deactivate;
 const vscode = require("vscode");
 const logger_1 = require("./utils/logger");
+const patchedContentProvider_1 = require("./utils/patchedContentProvider");
 const commands_1 = require("./commands");
 const editorContext_1 = require("./utils/editorContext");
 function activate(context) {
@@ -19,6 +20,8 @@ function activate(context) {
     statusBarItem.tooltip = "Open A.R.I.A. Copilot";
     statusBarItem.show();
     context.subscriptions.push(statusBarItem);
+    // 4. Register Patched Content Provider for Diffs
+    patchedContentProvider_1.PatchedContentProvider.register(context);
     // 4. File Awareness (Track Active Editor)
     (0, editorContext_1.activateEditorTracking)(context);
     if (vscode.window.activeTextEditor) {

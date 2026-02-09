@@ -1,371 +1,425 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src http://127.0.0.1:*; frame-src http://127.0.0.1:*; img-src vscode-resource: https: data: blob: http://127.0.0.1:*; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src vscode-resource: https: data: blob: mediastream: http://127.0.0.1:*;">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; connect-src http://127.0.0.1:*; frame-src http://127.0.0.1:*; img-src vscode-resource: https: data: blob: http://127.0.0.1:*; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src vscode-resource: https: data: blob: mediastream: http://127.0.0.1:*;">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>A.R.I.A. Copilot</title>
+    <title>A.R.I.A. Copilot - Minecraft Style</title>
     <style>
-        /* History Sidebar */
-        #history-drawer {
-            position: fixed;
-            top: 0;
-            left: 0;
-            bottom: 0;
-            width: 250px;
-            background-color: var(--vscode-sideBar-background);
-            border-right: 1px solid var(--vscode-panel-border);
-            z-index: 2000;
-            transform: translateX(-100%);
-            transition: transform 0.3s ease;
-            display: flex;
-            flex-direction: column;
-        }
-        #history-drawer.open {
-            transform: translateX(0);
-        }
-        #history-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            z-index: 1999;
-            display: none;
-        }
-        #history-overlay.open {
-            display: block;
-        }
-        .history-header {
-            padding: 15px;
-            border-bottom: 1px solid var(--vscode-panel-border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .history-list {
-            flex-grow: 1;
-            overflow-y: auto;
-            padding: 10px;
-        }
-        .history-item {
-            padding: 10px;
-            cursor: pointer;
-            border-radius: 4px;
-            margin-bottom: 5px;
-            position: relative;
-        }
-        .history-item:hover {
-            background-color: var(--vscode-list-hoverBackground);
-        }
-        .history-item.active {
-            background-color: var(--vscode-list-activeSelectionBackground);
-            color: var(--vscode-list-activeSelectionForeground);
-        }
-        .history-title {
-            font-weight: 600;
-            font-size: 0.9em;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .history-date {
-            font-size: 0.75em;
-            opacity: 0.7;
-        }
-        .history-delete {
-            position: absolute;
-            right: 5px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: none;
-            border: none;
-            color: var(--vscode-errorForeground);
-            cursor: pointer;
-            display: none;
-            padding: 4px;
-        }
-        .history-item:hover .history-delete {
-            display: block;
-        }
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
         :root {
-            --container-paddding: 20px;
-            --input-height: 40px;
+            /* Minecraft Palette */
+            --mc-bg: #1e1e1e;
+            /* Obsidian/Deep Background */
+            --mc-stone: #c6c6c6;
+            /* Stone Grey for UI elements */
+            --mc-stone-dark: #8b8b8b;
+            /* Darker Stone */
+            --mc-dirt: #5d4037;
+            /* Dirt Brown */
+            --mc-text: #333333;
+            /* Main text usually black on stone */
+            --mc-text-light: #ffffff;
+            /* Text on dark backgrounds */
+
+            --font-pixel: 'Press Start 2P', cursive;
         }
+
+        * {
+            box-sizing: border-box;
+            image-rendering: pixelated;
+        }
+
         body {
-            font-family: var(--vscode-font-family);
-            color: var(--vscode-foreground);
-            background-color: var(--vscode-editor-background);
+            font-family: var(--font-pixel);
+            color: var(--mc-text);
+            background-color: #101010;
+            /* Dark background behind panel */
             margin: 0;
             padding: 0;
             display: flex;
             flex-direction: column;
             height: 100vh;
             overflow: hidden;
-        }
-        
-        /* Header */
-        header {
-            padding: 15px 20px;
-            border-bottom: 1px solid var(--vscode-panel-border);
-            flex-shrink: 0;
-        }
-        h1 {
-            font-size: 1.1em;
-            margin: 0;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        h2 {
-            font-size: 0.85em;
-            color: var(--vscode-descriptionForeground);
-            margin: 5px 0 0 0;
-            font-weight: normal;
-        }
-
-        /* Result Stream (The "Output") */
-        #result-stream {
-            flex-grow: 1;
-            padding: 20px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-        }
-        
-        .entry {
-            margin-bottom: 10px;
-        }
-        .entry-command {
-            font-family: var(--vscode-editor-font-family);
-            font-size: 0.9em;
-            color: var(--vscode-textPreformat-foreground);
-            background: var(--vscode-textBlockQuote-background);
-            padding: 8px 12px;
-            border-radius: 4px;
-            align-self: flex-start;
-            display: inline-block;
-            margin-bottom: 8px;
-            border-left: 3px solid var(--vscode-textLink-activeForeground);
-        }
-        .entry-result {
-            font-size: 0.95em;
+            font-size: 10px;
             line-height: 1.5;
         }
 
-        /* Thought Process (Markdown Style) */
-        .thought-process-container {
-            margin-top: 15px;
-            margin-bottom: 15px;
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 6px;
-            overflow: hidden;
-            background-color: var(--vscode-editor-inactiveSelectionBackground);
+        /* Minecraft Scrollbar */
+        ::-webkit-scrollbar {
+            width: 16px;
         }
-        
-        .thought-process-header {
-            padding: 8px 12px;
-            background-color: var(--vscode-editor-lineHighlightBackground);
+
+        ::-webkit-scrollbar-track {
+            background: #000;
+            border-left: 2px solid #555;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #c6c6c6;
+            border: 2px solid #fff;
+            box-shadow: inset -2px -2px 0 #555;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #dcdcdc;
+        }
+
+        /* Layout */
+        header {
+            background: var(--mc-stone);
+            padding: 12px 16px;
+            border-bottom: 4px solid #000;
+            box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.2);
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            z-index: 10;
+        }
+
+        h1 {
+            font-size: 1.2em;
+            margin: 0;
+            color: #333;
+            text-shadow: 2px 2px 0 #fff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        h2 {
+            font-size: 0.7em;
+            color: #555;
+            margin: 4px 0 0 0;
+            font-weight: normal;
+        }
+
+        /* Generic Container Reset */
+        .mc-container {
+            padding: 15px 20px;
+            background: var(--mc-stone);
+            border-bottom: 4px solid #000;
+            box-shadow: inset 2px 2px 0 #fff, inset -2px -2px 0 #555;
+        }
+
+        /* History Drawer - Inventory Style */
+        #history-drawer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 280px;
+            background: #c6c6c6;
+            border-right: 4px solid #000;
+            z-index: 2000;
+            transform: translateX(-100%);
+            transition: transform 0.2s steps(4);
+            display: flex;
+            flex-direction: column;
+            box-shadow: 10px 0 0 rgba(0, 0, 0, 0.5);
+            padding: 4px;
+        }
+
+        #history-drawer.open {
+            transform: translateX(0);
+        }
+
+        #history-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1999;
+            display: none;
+        }
+
+        #history-overlay.open {
+            display: block;
+        }
+
+        .history-header {
+            background: #8b8b8b;
+            padding: 10px;
+            border: 2px solid #373737;
+            border-right: 2px solid #fff;
+            border-bottom: 2px solid #fff;
+            margin-bottom: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #fff;
+            text-shadow: 2px 2px 0 #000;
+        }
+
+        .history-item {
+            padding: 8px;
+            margin-bottom: 4px;
             cursor: pointer;
+            border: 2px solid transparent;
+            color: #333;
+            font-weight: bold;
+        }
+
+        .history-item:hover {
+            background: rgba(255, 255, 255, 0.4);
+            border: 2px solid #fff;
+        }
+
+        /* Buttons - Classic Minecraft Style */
+        button {
+            background: #c6c6c6;
+            color: #333;
+            text-shadow: 1px 1px 0 #fff;
+            font-family: var(--font-pixel);
+            font-size: 10px;
+            border: 2px solid #000;
+            border-top: 2px solid #fff;
+            border-left: 2px solid #fff;
+            border-right: 2px solid #555;
+            border-bottom: 2px solid #555;
+            padding: 8px 12px;
+            cursor: pointer;
+            box-shadow: none;
+            border-radius: 0;
+            margin-right: 4px;
+            text-transform: uppercase;
+        }
+
+        button:hover {
+            background: #dcdcdc;
+            color: #5555ff;
+            /* Highlight color */
+            text-shadow: 1px 1px 0 #ccc;
+        }
+
+        button:active {
+            border-top: 2px solid #555;
+            border-left: 2px solid #555;
+            border-right: 2px solid #fff;
+            border-bottom: 2px solid #fff;
+            background: #8b8b8b;
+        }
+
+        button.active {
+            background: #8b8b8b;
+            color: #55ff55;
+            border-top: 2px solid #555;
+            border-left: 2px solid #555;
+            border-right: 2px solid #fff;
+            border-bottom: 2px solid #fff;
+        }
+
+        button.secondary {
+            background: #a0a0a0;
+        }
+
+        /* Result Stream */
+        #result-stream {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 16px;
+            background: rgba(0, 0, 0, 0.6);
+            /* Darkened main area */
+            background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(0, 0, 0, 0.1) 10px, rgba(0, 0, 0, 0.1) 20px);
+        }
+
+        .entry {
+            margin-bottom: 16px;
+        }
+
+        .entry-command {
+            background: #212121;
+            color: #fff;
+            border: 2px solid #fff;
+            padding: 8px 12px;
+            display: inline-block;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+            box-shadow: 4px 4px 0 #000;
+        }
+
+        .entry-result {
+            color: #ddd;
+            font-family: 'Consolas', monospace;
+            /* Keep readable */
+            font-size: 1.1em;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        /* Analysis Cards (Stone Slab) */
+        .analysis-card {
+            background: #c6c6c6;
+            color: #333;
+            border: 2px solid #000;
+            box-shadow: inset 2px 2px 0 #fff, inset -2px -2px 0 #555;
+            padding: 12px;
+            margin-top: 8px;
+            font-family: var(--font-pixel);
+            font-size: 0.9em;
+            text-shadow: none;
+        }
+
+        .analysis-card h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+            text-shadow: 1px 1px 0 #fff;
+            border-bottom: 2px solid #777;
+            padding-bottom: 4px;
+        }
+
+        .analysis-section {
+            background: #d6d6d6;
+            border: 2px solid #777;
+            padding: 8px;
+            margin: 8px 0;
+            box-shadow: inset 1px 1px 0 #555;
+        }
+
+        .analysis-section strong {
+            color: #222;
+        }
+
+        .analysis-section ul {
+            padding-left: 20px;
+            margin: 4px 0;
+        }
+
+        /* Command Input (Chat) */
+        #command-bar {
+            background: #c6c6c6;
+            padding: 10px;
+            border-top: 4px solid #000;
+        }
+
+        .input-wrapper {
             display: flex;
             align-items: center;
             gap: 8px;
-            font-weight: 600;
-            font-size: 0.9em;
-            color: var(--vscode-foreground);
-            user-select: none;
-        }
-        
-        .thought-process-header:hover {
-            background-color: var(--vscode-list-hoverBackground);
         }
 
-        .thought-process-content {
-            padding: 15px;
-            font-family: var(--vscode-editor-font-family);
-            font-size: 0.9em;
-            line-height: 1.6;
-            color: var(--vscode-editor-foreground);
-            white-space: pre-wrap;
-            display: none; /* Hidden by default if closed */
+        input[type="text"] {
+            width: 100%;
+            background: #000;
+            color: #fff;
+            font-family: var(--font-pixel);
+            font-size: 11px;
+            padding: 12px;
+            border: 2px solid #a0a0a0;
+            outline: none;
+            box-shadow: inset 2px 2px 0 #333;
         }
 
-        .thought-process-content[open] {
-            display: block;
+        input[type="text"]:focus {
+            border-color: #fff;
+        }
+
+        /* Suggestions/Autofill */
+        /* Suggestions/Autofill */
+        #autocomplete-list {
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            right: 0;
+            background: #1e1e1e;
+            border: 2px solid #fff;
+            border-bottom: none;
+            z-index: 10000;
+            margin-bottom: 0;
+            max-height: 200px;
+            overflow-y: auto;
+            display: none;
+            box-shadow: 0 -4px 10px rgba(0, 0, 0, 0.5);
+        }
+
+        .input-wrapper {
+            position: relative;
+            /* Ensure absolute children are relative to this */
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .autocomplete-item {
+            padding: 8px;
+            color: #aaa;
+            cursor: pointer;
+            border-bottom: 1px solid #333;
+        }
+
+        .autocomplete-item:hover,
+        .autocomplete-item.active {
+            background: #333;
+            color: #fff;
+        }
+
+        /* Code Blocks */
+        code {
+            font-family: 'Consolas', monospace;
+            background: #333;
+            color: #ddd;
+            padding: 2px 4px;
+            border: 1px solid #555;
         }
 
         /* Status Dot */
         .status-dot {
-            height: 8px;
-            width: 8px;
-            background-color: var(--vscode-charts-blue);
-            border-radius: 50%;
+            height: 10px;
+            width: 10px;
+            background: #55ff55;
             display: inline-block;
-        }
-        
-        /* Markdown Content Styling */
-        .markdown-content h1, .markdown-content h2, .markdown-content h3 {
-            margin-top: 1em;
-            margin-bottom: 0.5em;
-            font-weight: 600;
-            color: var(--vscode-textLink-foreground);
-        }
-        .markdown-content code {
-            font-family: var(--vscode-editor-font-family);
-            background-color: var(--vscode-textCodeBlock-background);
-            padding: 2px 4px;
-            border-radius: 3px;
-        }
-        .markdown-content pre {
-            background-color: var(--vscode-textCodeBlock-background);
-            padding: 10px;
-            border-radius: 4px;
-            overflow-x: auto;
+            margin-right: 8px;
+            border: 2px solid #000;
+            box-shadow: none;
+            animation: none;
         }
 
-        /* Suggestions */
-        .suggestion-item {
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 4px;
-            margin-top: 10px;
-            overflow: hidden;
-        }
-        .suggestion-header {
-            padding: 8px 12px;
-            background: var(--vscode-sideBar-background);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            cursor: pointer;
-            font-weight: 600;
-        }
-        .suggestion-header:hover {
-            background: var(--vscode-list-hoverBackground);
-        }
-        .suggestion-body {
-            padding: 10px;
-            display: none; /* Hidden by default */
-            border-top: 1px solid var(--vscode-panel-border);
-        }
-        .suggestion-body.open {
-            display: block;
-        }
-        .suggestion-actions {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
-        }
-        
-        button {
-            background: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            padding: 6px 12px;
-            border-radius: 2px;
-            cursor: pointer;
-            font-family: inherit;
-        }
-        button:hover {
-            background: var(--vscode-button-hoverBackground);
-        }
-        button.secondary {
-            background: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-        }
-        button.secondary:hover {
-            background: var(--vscode-button-secondaryHoverBackground);
-        }
-        
-        /* Input Area */
-        #command-bar {
-            padding: 15px 20px;
-            border-top: 1px solid var(--vscode-panel-border);
-            background: var(--vscode-editor-background);
-            flex-shrink: 0;
-        }
-        
-        .input-wrapper {
-            position: relative;
-            display: flex;
-            align-items: center;
-        }
-        
-        input[type="text"] {
-            width: 100%;
-            padding: 10px 12px;
-            background: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 4px;
-            font-family: var(--vscode-editor-font-family);
-            font-size: 0.9em;
-            outline: none;
-        }
-        
-        input[type="text"]:focus {
-            border-color: var(--vscode-focusBorder);
-        }
-        
-        input[type="text"]::placeholder {
-            color: var(--vscode-input-placeholderForeground);
+        /* Fix Card (Suggestion) */
+        .fix-card {
+            background: #e6e6e6;
+            border: 2px dashed #555;
+            padding: 8px;
+            margin-top: 8px;
         }
 
-        /* Status Indicator */
-        .status-dot {
-            height: 8px;
-            width: 8px;
-            background-color: var(--vscode-testing-iconPassed);
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 6px;
+        /* Helper for Overrides */
+        #model-container,
+        #vision-container,
+        #video-context-container,
+        #firmware-container,
+        #serial-container {
+            background: #c6c6c6 !important;
+            border-bottom: 4px solid #000 !important;
+            color: #333 !important;
+            box-shadow: inset 2px 2px 0 #fff, inset -2px -2px 0 #555;
         }
 
-        /* Autocomplete */
-        #autocomplete-list {
-            position: absolute;
-            bottom: 100%; /* Position above the input */
-            left: 0;
-            right: 0;
-            background-color: var(--vscode-menu-background);
-            color: var(--vscode-menu-foreground);
-            border: 1px solid var(--vscode-menu-border);
-            border-radius: 4px;
-            max-height: 150px;
-            overflow-y: auto;
-            z-index: 1000;
-            display: none;
-            box-shadow: 0 -4px 6px rgba(0, 0, 0, 0.1);
+        /* Dropdowns */
+        select {
+            background: #8b8b8b;
+            color: #fff;
+            border: 2px solid #000;
+            box-shadow: inset -2px -2px 0 #fff;
+            padding: 4px;
+            font-family: var(--font-pixel);
+            font-size: 10px;
         }
-
-        .autocomplete-item {
-            padding: 8px 12px;
-            cursor: pointer;
-            border-bottom: 1px solid var(--vscode-menu-separatorBackground);
-        }
-
-        .autocomplete-item:last-child {
-            border-bottom: none;
-        }
-
-        .autocomplete-item:hover, .autocomplete-item.active {
-            background-color: var(--vscode-menu-selectionBackground);
-            color: var(--vscode-menu-selectionForeground);
-        }
-
     </style>
 </head>
+
 <body>
     <div id="history-overlay"></div>
     <div id="history-drawer">
         <div class="history-header">
             <span style="font-weight: 600;">Chat History</span>
-            <button id="btn-close-history" style="background:none; border:none; cursor:pointer; color:var(--vscode-foreground);">✕</button>
+            <button id="btn-close-history" style="background:none; border:none; padding:0; box-shadow:none;">✕</button>
         </div>
         <div style="padding: 10px;">
-            <button id="btn-new-chat" style="width: 100%; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 8px; cursor: pointer; border-radius: 2px;">+ New Chat</button>
+            <button id="btn-new-chat" style="width: 100%;">+ New Chat</button>
         </div>
         <div id="history-list" class="history-list">
             <!-- Items go here -->
@@ -373,44 +427,48 @@
     </div>
     <header>
         <div style="display: flex; align-items: center;">
-            <button id="btn-toggle-history" style="background:none; border:none; cursor:pointer; font-size:1.2em; margin-right:10px; color:var(--vscode-foreground);">☰</button>
+            <button id="btn-toggle-history" style="font-size:1.2em; margin-right:10px; padding: 4px 8px;">☰</button>
             <div>
                 <h1><span class="status-dot"></span>A.R.I.A. Copilot</h1>
-                <h2>Hardware-Aware IDE Copilot</h2>
+                <h2>Minecraft Edition</h2>
             </div>
         </div>
     </header>
-    <div id="model-container" style="padding: 10px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); display: flex; align-items: center; gap: 10px;">
-        <span style="font-size: 0.85em; opacity: 0.8;">Model</span>
-        <select id="model-select" style="flex: 1; padding: 6px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); border-radius: 4px;"></select>
+    <div id="model-container" class="mc-container">
+        <span style="font-size: 0.85em; opacity: 0.8; font-weight: bold;">Model</span>
+        <select id="model-select" style="flex: 1; margin: 0 8px;"></select>
         <button id="model-refresh" class="secondary" style="padding: 6px 10px;">Refresh</button>
-        <span id="model-status" style="font-size: 0.8em; opacity: 0.7;"></span>
+        <span id="model-status" style="font-size: 0.8em; opacity: 0.7; margin-left: 8px;"></span>
     </div>
 
     <!-- Visual Hardware Context Section -->
-    <div id="vision-container" style="padding: 15px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); display: none;">
+    <div id="vision-container" style="display: none;" class="mc-container">
         <div style="display: flex; gap: 15px; align-items: flex-start;">
-            <div id="vision-thumb" style="width: 80px; height: 80px; background: #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+            <div id="vision-thumb"
+                style="width: 80px; height: 80px; background: #333; border: 2px solid #000; display: flex; align-items: center; justify-content: center; overflow: hidden;">
                 <span style="font-size: 24px;">📷</span>
             </div>
             <div style="flex-grow: 1;">
-                <h3 style="margin: 0 0 5px 0; font-size: 0.9em; text-transform: uppercase;">Visual Context</h3>
+                <h3 style="margin: 0 0 5px 0; font-size: 0.9em; text-transform: uppercase; color: #333;">Visual Context
+                </h3>
                 <div id="vision-details" style="font-size: 0.85em; opacity: 0.9;">
                     No image analyzed.
                 </div>
-                <div id="vision-warnings" style="color: var(--vscode-errorForeground); font-size: 0.85em; margin-top: 5px; display: none;"></div>
+                <div id="vision-warnings" style="color: #d32f2f; font-size: 0.85em; margin-top: 5px; display: none;">
+                </div>
             </div>
             <div style="display: flex; flex-direction: column; gap: 5px;">
-                <button id="btn-use-reference" style="font-size: 0.8em; padding: 4px 8px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; cursor: pointer;">Use as Reference</button>
-                <button id="btn-discard-vision" class="secondary" style="font-size: 0.8em; padding: 4px 8px;">✕ Discard</button>
+                <button id="btn-use-reference">Use as Reference</button>
+                <button id="btn-discard-vision" class="secondary">✕ Discard</button>
             </div>
         </div>
     </div>
 
     <!-- Video Context Section -->
-    <div id="video-context-container" style="padding: 15px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); display: none;">
+    <div id="video-context-container" style="display: none;" class="mc-container">
         <div style="display: flex; gap: 15px; align-items: flex-start;">
-            <div id="video-thumb" style="width: 80px; height: 80px; background: #222; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+            <div id="video-thumb"
+                style="width: 80px; height: 80px; background: #222; border: 2px solid #000; display: flex; align-items: center; justify-content: center; overflow: hidden;">
                 <span style="font-size: 24px;">🎥</span>
             </div>
             <div style="flex-grow: 1;">
@@ -418,61 +476,66 @@
                 <div id="video-details" style="font-size: 0.85em; opacity: 0.9;">
                     No video selected.
                 </div>
-                <div id="video-status" style="color: var(--vscode-charts-blue); font-size: 0.85em; margin-top: 5px; font-style: italic;"></div>
+                <div id="video-status" style="color: #0000aa; font-size: 0.85em; margin-top: 5px; font-style: italic;">
+                </div>
             </div>
             <div style="display: flex; flex-direction: column; gap: 5px;">
-                <button id="btn-analyze-video" style="font-size: 0.8em; padding: 4px 8px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; cursor: pointer; display: none;">Analyze</button>
-                <button id="btn-discard-video" class="secondary" style="font-size: 0.8em; padding: 4px 8px;">✕ Discard</button>
+                <button id="btn-analyze-video" style="display: none;">Analyze</button>
+                <button id="btn-discard-video" class="secondary">✕ Discard</button>
             </div>
         </div>
     </div>
 
     <!-- Camera Stream Section -->
-    <div id="camera-stream-container" style="padding: 15px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: #000; display: none; flex-direction: column; align-items: center;">
+    <div id="camera-stream-container"
+        style="padding: 15px 20px; border-bottom: 4px solid #000; background: #000; display: none; flex-direction: column; align-items: center;">
         <div style="width: 100%; display: flex; justify-content: flex-end; margin-bottom: 5px;">
-             <button id="btn-close-stream" style="background: none; border: none; color: #fff; font-size: 1.2em; cursor: pointer;" title="Close Camera">✕</button>
+            <button id="btn-close-stream" style="color: #fff; background: #d32f2f;" title="Close Camera">✕</button>
         </div>
-        <img id="camera-stream-img" style="width: 100%; max-height: 300px; object-fit: contain; border: 1px solid #333;" />
-        
+        <img id="camera-stream-img"
+            style="width: 100%; max-height: 300px; object-fit: contain; border: 4px solid #8b8b8b;" />
+
         <!-- Photo Mode Controls -->
         <button id="btn-capture-stream" style="margin-top: 10px; width: 100%;">Capture Photo</button>
-        
+
         <!-- Video Mode Controls -->
         <div id="video-controls-container" style="width: 100%; display: none; margin-top: 10px; gap: 10px;">
-            <button id="btn-record-start" style="flex: 1; background: var(--vscode-charts-red); color: white; border: none; padding: 6px; cursor: pointer;">Start Recording</button>
-            <button id="btn-record-stop" style="flex: 1; display: none; background: #555; color: white; border: none; padding: 6px; cursor: pointer;">Stop Recording</button>
+            <button id="btn-record-start" style="flex: 1; color: #fff; background: #d32f2f;">Start Recording</button>
+            <button id="btn-record-stop" style="flex: 1; display: none;">Stop Recording</button>
         </div>
 
-        <p style="font-size: 0.8em; opacity: 0.7; margin-top: 5px;">Native Python Stream</p>
+        <p style="font-size: 0.8em; opacity: 0.7; margin-top: 5px; color: #ccc;">Native Python Stream</p>
     </div>
 
     <!-- Firmware Deployment Section -->
-    <div id="firmware-container" style="padding: 15px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-editor-background); display: flex; flex-direction: column; gap: 10px;">
+    <div id="firmware-container" class="mc-container">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-            <h3 style="margin: 0; font-size: 0.9em; text-transform: uppercase;">Firmware Deployment</h3>
+            <h3 style="margin: 0; font-size: 0.9em; text-transform: uppercase; color: #333;">Firmware Deployment</h3>
             <span id="deployment-status" style="font-size: 0.8em; opacity: 0.7;">Ready</span>
         </div>
-        <div style="display: flex; gap: 10px;">
+        <div style="display: flex; gap: 10px; margin-top: 10px;">
             <button id="btn-build" style="flex: 1;">Build Firmware</button>
             <button id="btn-flash" style="flex: 1;" class="secondary">Flash to Device</button>
         </div>
     </div>
 
     <!-- Serial Diagnostics Section -->
-    <div id="serial-container" style="padding: 15px 20px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); display: flex; flex-direction: column; gap: 10px;">
+    <div id="serial-container" class="mc-container">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-            <h3 style="margin: 0; font-size: 0.9em; text-transform: uppercase;">Serial Diagnostics</h3>
-            <span id="serial-status" style="font-size: 0.8em; opacity: 0.7; color: var(--vscode-descriptionForeground);">Disconnected</span>
+            <h3 style="margin: 0; font-size: 0.9em; text-transform: uppercase; color: #333;">Serial Diagnostics</h3>
+            <span id="serial-status" style="font-size: 0.8em; opacity: 0.7;">Disconnected</span>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85em;">
-             <span>Buffered Lines:</span>
-             <span id="serial-lines">0</span>
+        <div
+            style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85em; margin-top: 5px; color: #444;">
+            <span>Buffered Lines:</span>
+            <span id="serial-lines">0</span>
         </div>
-        <div style="display: flex; gap: 10px;">
+        <div style="display: flex; gap: 10px; margin-top: 10px;">
             <button id="btn-open-serial" style="flex: 1;">Open Monitor</button>
             <button id="btn-analyze-serial" style="flex: 1;" class="secondary">Analyze Logs</button>
         </div>
-        <div id="serial-results" style="display: none; background: var(--vscode-editor-background); padding: 10px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; font-size: 0.85em;">
+        <div id="serial-results"
+            style="display: none; background: #eee; padding: 10px; border: 2px solid #555; margin-top: 10px; font-size: 0.85em; color: #333;">
             <!-- Analysis results go here -->
         </div>
     </div>
@@ -481,19 +544,20 @@
     <div id="result-stream">
         <!-- Initial State -->
         <div class="entry">
-            <div class="entry-result">
-                Ready for commands. Type <code>/help</code> for options.
+            <div class="entry-result" style="color: #fff; text-shadow: 1px 1px 0 #000;">
+                Ready for commands. Type <code style="color: #fff;">/help</code> for options.
             </div>
         </div>
     </div>
 
     <div id="command-bar">
         <div class="input-wrapper">
-            <button id="btn-camera" style="margin-right: 8px; background: none; border: none; cursor: pointer; color: var(--vscode-foreground);" title="Upload Hardware Image">📷</button>
-            <button id="btn-video" style="margin-right: 8px; background: none; border: none; cursor: pointer; color: var(--vscode-foreground);" title="Analyze Hardware Video">🎥</button>
+            <button id="btn-camera" title="Upload Hardware Image">📷</button>
+            <button id="btn-video" title="Analyze Hardware Video">🎥</button>
             <input type="file" id="file-input" accept="image/png, image/jpeg" style="display: none;" />
             <div id="autocomplete-list"></div>
-            <input type="text" id="command-input" placeholder="Enter command (e.g., /analyze, /vision)..." autocomplete="off" />
+            <input type="text" id="command-input" placeholder="Enter command (e.g., /analyze, /vision)..."
+                autocomplete="off" />
         </div>
     </div>
 
@@ -501,18 +565,30 @@
         const vscode = acquireVsCodeApi();
         const input = document.getElementById('command-input');
         const stream = document.getElementById('result-stream');
+
+        // Restore State immediately
+        const previousState = vscode.getState();
+        if (previousState && previousState.chatHtml) {
+            stream.innerHTML = previousState.chatHtml;
+            // Scroll to bottom
+            setTimeout(() => stream.scrollTop = stream.scrollHeight, 100);
+        }
+
+        function saveState() {
+            vscode.setState({ chatHtml: stream.innerHTML });
+        }
         const autocompleteList = document.getElementById('autocomplete-list');
         const fileInput = document.getElementById('file-input');
         const btnCamera = document.getElementById('btn-camera');
         const btnVideo = document.getElementById('btn-video');
-        
+
         const visionContainer = document.getElementById('vision-container');
         const visionDetails = document.getElementById('vision-details');
         const visionThumb = document.getElementById('vision-thumb');
         const visionWarnings = document.getElementById('vision-warnings');
         const btnDiscardVision = document.getElementById('btn-discard-vision');
         const btnUseReference = document.getElementById('btn-use-reference');
-        
+
         const videoContextContainer = document.getElementById('video-context-container');
         const videoDetails = document.getElementById('video-details');
         const videoStatus = document.getElementById('video-status');
@@ -522,7 +598,7 @@
         const modelSelect = document.getElementById('model-select');
         const modelRefresh = document.getElementById('model-refresh');
         const modelStatus = document.getElementById('model-status');
-        
+
         const btnBuild = document.getElementById('btn-build');
         const btnFlash = document.getElementById('btn-flash');
         const deploymentStatus = document.getElementById('deployment-status');
@@ -565,7 +641,7 @@
         btnToggleHistory.addEventListener('click', () => toggleHistory(true));
         btnCloseHistory.addEventListener('click', () => toggleHistory(false));
         historyOverlay.addEventListener('click', () => toggleHistory(false));
-        
+
         btnNewChat.addEventListener('click', () => {
             toggleHistory(false);
             vscode.postMessage({ command: 'newChat' });
@@ -577,29 +653,29 @@
                 historyList.innerHTML = '<div style="padding:10px; opacity:0.7;">No history</div>';
                 return;
             }
-            
+
             // Sort by last modified
             sessions.sort((a, b) => b.lastModified - a.lastModified);
 
             sessions.forEach(session => {
                 const item = document.createElement('div');
                 item.className = 'history-item';
-                
+
                 const date = new Date(session.lastModified).toLocaleDateString();
-                
+
                 item.innerHTML = `
                     <div class="history-title">${session.title}</div>
                     <div class="history-date">${date}</div>
                     <button class="history-delete" title="Delete Chat">🗑️</button>
                 `;
-                
+
                 item.addEventListener('click', (e) => {
                     // Ignore if delete button clicked
                     if (e.target.classList.contains('history-delete')) return;
                     toggleHistory(false);
                     vscode.postMessage({ command: 'loadSession', sessionId: session.id });
                 });
-                
+
                 const deleteBtn = item.querySelector('.history-delete');
                 deleteBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -607,40 +683,45 @@
                         vscode.postMessage({ command: 'deleteChat', sessionId: session.id });
                     }
                 });
-                
+
                 historyList.appendChild(item);
             });
         }
 
-        function loadChatSession(session) {
+        function loadChatSession(session, isInit = false) {
+            // Protection: If initializing and we already have restored content (more than just the welcome message), skip backend load
+            if (isInit && stream.children.length > 2) {
+                console.log('Skipping backend init load in favor of local state');
+                return;
+            }
             stream.innerHTML = '';
             // Reset state
             videoContextContainer.style.display = 'none';
             visionContainer.style.display = 'none';
-            
+
             // Render messages
             session.messages.forEach(msg => {
                 if (msg.role === 'user') {
                     // Check if it was a command or just text
-                    const type = 'command'; 
+                    const type = 'command';
                     addEntry(msg.content, type);
                 } else if (msg.role === 'assistant') {
                     // Check metadata for rich content
                     if (msg.metadata) {
-                         const m = msg.metadata;
-                         if (m.type === 'showAnalysis') {
-                             renderAnalysis(m.data, m.metadata);
-                         } else if (m.type === 'visionResult') {
-                             updateVisionUI(m.data);
-                         } else if (m.type === 'addResult') {
-                             addEntry(m.text, 'result');
-                         }
+                        const m = msg.metadata;
+                        if (m.type === 'showAnalysis') {
+                            renderAnalysis(m.data, m.metadata);
+                        } else if (m.type === 'visionResult') {
+                            updateVisionUI(m.data);
+                        } else if (m.type === 'addResult') {
+                            addEntry(m.text, 'result');
+                        }
                     } else if (msg.content) {
                         addEntry(msg.content, 'result');
                     }
                 }
             });
-            
+
             // Scroll to bottom
             stream.scrollTop = stream.scrollHeight;
         }
@@ -657,18 +738,19 @@
                 videoDetails.textContent = message.filename;
                 videoStatus.textContent = 'Initializing Upload...';
                 btnAnalyzeVideo.style.display = 'none';
-                // Hide vision if active (mutually exclusive for simplicity?)
-                // visionContainer.style.display = 'none'; 
+            }
+            if (message.type === 'loadChat') {
+                loadChatSession(message.session);
             }
             if (message.type === 'videoStatus') {
                 videoStatus.textContent = message.status;
                 if (message.ready) {
                     btnAnalyzeVideo.style.display = 'inline-block';
-                    videoStatus.style.color = 'var(--vscode-testing-iconPassed)';
+                    videoStatus.style.color = '#00aa00';
                 } else if (message.error) {
-                    videoStatus.style.color = 'var(--vscode-errorForeground)';
+                    videoStatus.style.color = '#aa0000';
                 } else {
-                    videoStatus.style.color = 'var(--vscode-charts-blue)';
+                    videoStatus.style.color = '#0000aa';
                 }
             }
             if (message.type === 'serialResult') {
@@ -676,7 +758,7 @@
             }
             if (message.type === 'serialStatus') {
                 serialStatus.textContent = message.connected ? "Connected" : "Disconnected";
-                serialStatus.style.color = message.connected ? "var(--vscode-testing-iconPassed)" : "var(--vscode-descriptionForeground)";
+                serialStatus.style.color = message.connected ? "#00aa00" : "#555";
                 serialLines.textContent = message.lineCount;
             }
             if (message.command === 'showStream') {
@@ -697,67 +779,316 @@
                     videoControlsContainer.style.display = 'none';
                 }
             }
-            // ... existing handlers ...
+
+            if (message.type === 'modelList') {
+                modelRequestInFlight = false;
+                modelSelect.innerHTML = '';
+                if (message.models && message.models.length > 0) {
+                    message.models.forEach(m => {
+                        const option = document.createElement('option');
+                        option.value = m;
+                        option.textContent = m;
+                        modelSelect.appendChild(option);
+                    });
+                }
+                if (message.selected) {
+                    const exists = Array.from(modelSelect.options).some(o => o.value === message.selected);
+                    if (!exists) {
+                        const option = document.createElement('option');
+                        option.value = message.selected;
+                        option.textContent = message.selected;
+                        modelSelect.appendChild(option);
+                    }
+                    modelSelect.value = message.selected;
+                }
+                modelStatus.textContent = message.error ? message.error : `${(message.models || []).length} models`;
+            }
+
+            if (message.type === 'modelSelected') {
+                modelStatus.textContent = `Selected ${message.model}`;
+            }
+
+            if (message.type === 'addResult') {
+                addEntry(message.text, 'result');
+            }
+
+            if (message.type === 'showAnalysis') {
+                renderAnalysis(message.data, message.metadata);
+            }
+
+            if (message.type === 'showImage') {
+                // Remove loading
+                const loadingElements = document.querySelectorAll('.entry-result em');
+                loadingElements.forEach(el => {
+                    if (el.textContent === 'Analyzing...' || el.textContent.includes('Generating')) {
+                        el.closest('.entry').remove();
+                    }
+                });
+
+                const imgContainer = document.createElement('div');
+                imgContainer.className = 'entry';
+
+                let imageContent = '';
+                if (message.isSvg) {
+                    imageContent = `<div style="background: white; padding: 10px; border-radius: 4px; overflow: auto;">${message.image}</div>`;
+                } else {
+                    // Default to JPEG if no prefix, otherwise use as is
+                    const src = message.image.startsWith('data:') ? message.image : `data:image/jpeg;base64,${message.image}`;
+                    imageContent = `<img src="${src}" style="max-width: 100%; border: 1px solid #555; border-radius: 4px; margin-top: 10px;" />`;
+                }
+
+                imgContainer.innerHTML = `
+                    <div class="entry-header">
+                        <span>A.R.I.A (Schematic Engine)</span>
+                    </div>
+                    <div class="entry-result">
+                        <p><strong>Generated Schematic:</strong> ${message.prompt}</p>
+                        ${imageContent}
+                        <div style="font-size: 0.8em; opacity: 0.7; margin-top: 5px;">Model: ${message.metadata.model}</div>
+                    </div>
+                `;
+                stream.appendChild(imgContainer);
+                stream.scrollTop = stream.scrollHeight;
+            }
+
+            if (message.type === 'showHardwareValidation') {
+                renderHardwareValidation(message.data, message.metadata);
+            }
+
+            if (message.type === 'analysisLoading') {
+                addEntry('<em>Analyzing...</em>', 'result');
+            }
+
+            if (message.type === 'analysisError') {
+                addEntry(`<span style="color:#ff5555">Analysis Failed: ${message.error}</span>`, 'result');
+            }
+
+            if (message.type === 'successMessage') {
+                addEntry(`<div style="padding: 12px; background: #e6e6e6; border-left: 4px solid #55ff55; color: #333; display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 1.2em;">${message.text}</span>
+                </div>`, 'result');
+            }
+
+            if (message.type === 'historyList') {
+                renderHistoryList(message.sessions);
+            }
+
+            if (message.type === 'loadChat') {
+                loadChatSession(message.session, message.isInit);
+            }
+
+            if (message.type === 'clearContext') {
+                // Clear Vision UI
+                visionContainer.style.display = 'none';
+                visionDetails.innerText = "No image analyzed.";
+                if (visionThumb) visionThumb.innerHTML = '<span style="font-size: 24px;">📷</span>';
+                if (fileInput) fileInput.value = '';
+                if (btnUseReference) {
+                    btnUseReference.classList.remove('active');
+                    btnUseReference.textContent = "Use as Reference";
+                }
+                // Clear Video UI
+                videoContextContainer.style.display = 'none';
+                if (videoDetails) videoDetails.textContent = "No video selected.";
+            }
         });
-        
-        if (btnCaptureStream) {
-            btnCaptureStream.addEventListener('click', () => {
-                if (currentStreamUrl) {
-                    btnCaptureStream.disabled = true;
-                    btnCaptureStream.innerText = "Capturing...";
-                    vscode.postMessage({ command: 'triggerCapture', url: currentStreamUrl });
-                }
-            });
-        }
-        
-        if (btnCloseStream) {
-            btnCloseStream.addEventListener('click', () => {
-                cameraStreamContainer.style.display = 'none';
-                cameraStreamImg.src = ''; // Stop trying to load
-                vscode.postMessage({ command: 'stopStream' });
-            });
+
+        function addEntry(text, type) {
+            const div = document.createElement('div');
+            div.className = 'entry';
+
+            if (type === 'command') {
+                const cmdDiv = document.createElement('div');
+                cmdDiv.className = 'entry-command';
+                cmdDiv.textContent = text;
+                div.appendChild(cmdDiv);
+            } else {
+                const resDiv = document.createElement('div');
+                resDiv.className = 'entry-result';
+                resDiv.innerHTML = text; // Allow simple HTML
+                div.appendChild(resDiv);
+            }
+
+            stream.appendChild(div);
+            stream.scrollTop = stream.scrollHeight;
+            saveState(); // Persist
         }
 
-        if (btnRecordStart) {
-            btnRecordStart.addEventListener('click', () => {
-                if (currentStreamUrl) {
-                    btnRecordStart.style.display = 'none';
-                    btnRecordStop.style.display = 'block';
-                    vscode.postMessage({ command: 'startRecording', url: currentStreamUrl });
-                }
-            });
+        // ... (formatSimpleMarkdown omitted) ...
+
+        function renderAnalysis(analysis, metadata) {
+            // ... (existing logic) ...
+
+            // At the end of renderAnalysis:
+            container.appendChild(card);
+            stream.appendChild(container);
+            stream.scrollTop = stream.scrollHeight;
+            saveState(); // Persist
         }
 
-        if (btnRecordStop) {
-            btnRecordStop.addEventListener('click', () => {
-                if (currentStreamUrl) {
-                    btnRecordStop.innerText = "Stopping...";
-                    btnRecordStop.disabled = true;
-                    vscode.postMessage({ command: 'stopRecording', url: currentStreamUrl });
-                    
-                    // Reset UI after delay (or wait for message)
-                    setTimeout(() => {
-                         cameraStreamContainer.style.display = 'none';
-                         btnRecordStop.innerText = "Stop Recording";
-                         btnRecordStop.disabled = false;
-                         vscode.postMessage({ command: 'stopStream' }); // Close stream after recording
-                    }, 1000);
-                }
-            });
+        // ...
+
+        function renderHardwareValidation(result, metadata) {
+            // ... (existing logic) ...
+
+            // At the end:
+            container.appendChild(card);
+            stream.appendChild(container);
+            stream.scrollTop = stream.scrollHeight;
+            // Bind data to window for the button functions
+            window.lastValidationResult = result;
+            window.lastValidationMetadata = metadata;
+            saveState(); // Persist
         }
+
+        function formatSimpleMarkdown(text) {
+            if (!text) return '';
+            // 1. Escape HTML (basic)
+            let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+            // 2. Bold (**text**)
+            html = html.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+
+            // 3. Italic (*text*)
+            html = html.replace(/\*(.*?)\*/g, '<i>$1</i>');
+
+            // 4. Code (`text`)
+            html = html.replace(/`(.*?)`/g, '<code style="background:#444; color: #ddd; padding:2px 4px; border: 1px solid #666;">$1</code>');
+
+            // 5. Headers (### Text) - convert to bold block
+            html = html.replace(/^###\s+(.*$)/gm, '<div style="font-weight:600; margin-top:10px; margin-bottom:5px;">$1</div>');
+
+            return html;
+        }
+
+        function renderAnalysis(analysis, metadata) {
+            const container = document.createElement('div');
+            container.className = 'entry';
+
+            const card = document.createElement('div');
+            card.className = 'entry-result analysis-card';
+
+            // Header
+            let headerHtml = '';
+            if (metadata.source !== 'chat') {
+                headerHtml = `<h3>${metadata.source === 'selection' ? '🔎 Selection' : metadata.source === 'workspace' ? '📂 Workspace' : metadata.source === 'vision-chat' ? '👁️ Vision Chat' : metadata.source === 'video-analysis' ? '🎥 Video Analysis' : '📄 File'}: ${metadata.filePath || 'General Chat'}</h3>`;
+            }
+
+            card.innerHTML = `
+                ${headerHtml}
+                <div style="margin-bottom: 15px; font-size: 1.1em; line-height: 1.5; white-space: pre-wrap;">${formatSimpleMarkdown(analysis.summary)}</div>
+                
+                ${(analysis.thoughtProcess && metadata.source !== 'chat') ? `
+                <div class="analysis-section">
+                    <details>
+                        <summary style="cursor: pointer; font-weight: bold; color: #555; display: flex; align-items: center; gap: 5px;">
+                             <span class="status-dot"></span> 🧠 ${metadata.model || 'Gemini'} Thinking Process
+                        </summary>
+                        <div style="margin-top: 10px; padding: 10px; background: #e0e0e0; border-left: 2px solid #555; border-radius: 0 4px 4px 0; font-family: 'Press Start 2P', cursive; white-space: pre-wrap; font-size: 0.9em; max-height: 300px; overflow-y: auto; color: #333;">
+                            ${analysis.thoughtProcess.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+                        </div>
+                    </details>
+                </div>` : ''}
+
+                ${(analysis.detectedIssues && analysis.detectedIssues.length > 0) ? `
+                <div class="analysis-section">
+                    <strong>⚠️ Issues (${analysis.detectedIssues.length})</strong>
+                    <ul>${analysis.detectedIssues.map(i => `<li>${i}</li>`).join('')}</ul>
+                </div>` : ''}
+                
+                ${(analysis.recommendations && analysis.recommendations.length > 0) ? `
+                <div class="analysis-section">
+                    <strong>💡 Recommendations</strong>
+                    <ul>${analysis.recommendations.map(r => `<li>${r}</li>`).join('')}</ul>
+                </div>` : ''}
+            `;
+
+            // Suggestions
+            if (analysis.suggestions && analysis.suggestions.length > 0) {
+                const bulkActions = document.createElement('div');
+                bulkActions.className = 'analysis-section';
+
+                const applyAllBtn = document.createElement('button');
+                applyAllBtn.textContent = 'Apply All Fixes';
+                applyAllBtn.onclick = () => {
+                    vscode.postMessage({
+                        command: 'applyAllDiffs',
+                        diffs: analysis.suggestions.map(s => s.diff)
+                    });
+                };
+
+                bulkActions.appendChild(applyAllBtn);
+                card.appendChild(bulkActions);
+
+                const suggestionsTitle = document.createElement('div');
+                suggestionsTitle.className = 'analysis-section';
+                suggestionsTitle.innerHTML = `<strong>✨ Code Suggestions (${analysis.suggestions.length})</strong>`;
+                card.appendChild(suggestionsTitle);
+
+                analysis.suggestions.forEach((suggestion, index) => {
+                    const sItem = document.createElement('div');
+                    sItem.className = 'suggestion-item';
+
+                    const sHeader = document.createElement('div');
+                    sHeader.className = 'suggestion-header';
+
+                    const fileBadge = suggestion.filePath
+                        ? `<span style="font-size:0.8em; opacity:0.7; margin-right:8px; background:#555; color:#fff; padding:2px 4px;">${suggestion.filePath}</span>`
+                        : '';
+
+                    sHeader.innerHTML = `<div style="display:flex; align-items:center; overflow:hidden; text-overflow:ellipsis;">${fileBadge}<span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${suggestion.description}</span></div> <span>▼</span>`;
+                    sHeader.onclick = () => {
+                        const body = sItem.querySelector('.suggestion-body');
+                        body.classList.toggle('open');
+                        sHeader.querySelector('span:last-child').textContent = body.classList.contains('open') ? '▲' : '▼';
+                    };
+
+                    const sBody = document.createElement('div');
+                    sBody.className = 'suggestion-body';
+
+                    const actions = document.createElement('div');
+                    actions.className = 'suggestion-actions';
+
+                    const btnPreview = document.createElement('button');
+                    btnPreview.textContent = 'Preview Diff';
+                    btnPreview.onclick = () => {
+                        vscode.postMessage({
+                            command: 'previewDiff',
+                            diff: suggestion.diff
+                        });
+                    };
+
+                    actions.appendChild(btnPreview);
+
+                    sBody.appendChild(actions);
+                    sItem.appendChild(sHeader);
+                    sItem.appendChild(sBody);
+                    card.appendChild(sItem);
+                });
+            }
+
+            // Footer
+            const footer = document.createElement('div');
+            footer.className = 'analysis-meta';
+            footer.innerHTML = `Confidence: ${(analysis.confidence * 100).toFixed(0)}% | Hardware: ${metadata.hardware || "None"}`;
+            card.appendChild(footer);
+
+            container.appendChild(card);
+            stream.appendChild(container);
+            stream.scrollTop = stream.scrollHeight;
+        }
+
+        requestModels();
 
         function requestModels() {
-            if (modelRequestInFlight) return;
+            modelStatus.innerText = "Loading...";
             modelRequestInFlight = true;
-            modelStatus.textContent = 'Loading...';
             vscode.postMessage({ command: 'getModels' });
         }
 
-        if (modelRefresh) {
-            modelRefresh.addEventListener('click', () => {
-                requestModels();
-            });
-        }
+        modelRefresh.addEventListener('click', () => {
+            if (!modelRequestInFlight) requestModels();
+        });
 
         if (modelSelect) {
             modelSelect.addEventListener('change', () => {
@@ -765,6 +1096,85 @@
                 if (value) {
                     vscode.postMessage({ command: 'setModel', model: value });
                 }
+            });
+        }
+
+        function renderHardwareValidation(result, metadata) {
+            const container = document.createElement('div');
+            container.className = 'entry';
+
+            const card = document.createElement('div');
+            card.className = 'entry-result analysis-card';
+
+            // Header
+            card.innerHTML = `
+                <h3>🛠️ Hardware Validation</h3>
+                <p><strong>Board:</strong> ${metadata.board}</p>
+                <div style="margin-bottom: 10px;">
+                    <span style="font-weight: bold; color: ${result.status === 'pass' ? '#55ff55' : result.status === 'fail' ? '#ff5555' : '#ffff55'}; text-transform: uppercase;">
+                        Status: ${result.status}
+                    </span>
+                </div>
+                
+                ${(result.issues && result.issues.length > 0) ? `
+                <div class="analysis-section">
+                    <strong>⚠️ Issues (${result.issues.length})</strong>
+                    <ul>${result.issues.map(i => `<li>${i}</li>`).join('')}</ul>
+                </div>` : ''}
+
+                ${(result.peripherals && result.peripherals.length > 0) ? `
+                 <div class="analysis-section">
+                    <strong>🔌 Peripherals Detected</strong>
+                    <ul>${result.peripherals.map(p => `<li>${p}</li>`).join('')}</ul>
+                </div>` : ''}
+                
+                <div class="analysis-section" style="margin-top: 15px;">
+                    <button id="btn-generate-sim" onclick="generateSimulation()">Generate Wokwi Simulation</button>
+                    <button id="btn-open-sim" class="secondary" style="display:none;" onclick="openSimulation()">Open Simulation</button>
+                </div>
+            `;
+
+            // Store data for callbacks
+            card.dataset.result = JSON.stringify(result);
+            card.dataset.metadata = JSON.stringify(metadata);
+
+            container.appendChild(card);
+            stream.appendChild(container);
+            stream.scrollTop = stream.scrollHeight;
+
+            // Bind data to window for the button functions to access last result (simple hack)
+            window.lastValidationResult = result;
+            window.lastValidationMetadata = metadata;
+        }
+
+        function generateSimulation() {
+            if (!window.lastValidationResult) return;
+
+            vscode.postMessage({
+                command: 'generateSimulation',
+                data: window.lastValidationResult,
+                metadata: window.lastValidationMetadata
+            });
+
+            // Update UI
+            const btnGen = document.getElementById('btn-generate-sim');
+            if (btnGen) {
+                btnGen.textContent = "Simulation Generated!";
+                btnGen.disabled = true;
+            }
+
+            const btnOpen = document.getElementById('btn-open-sim');
+            if (btnOpen) {
+                btnOpen.style.display = 'inline-block';
+            }
+        }
+
+        function openSimulation() {
+            if (!window.lastValidationMetadata) return;
+
+            vscode.postMessage({
+                command: 'openSimulation',
+                workspaceRoot: window.lastValidationMetadata.workspaceRoot
             });
         }
 
@@ -788,6 +1198,58 @@
             });
         }
 
+        // Camera Stream Controls
+        if (btnCaptureStream) {
+            btnCaptureStream.addEventListener('click', () => {
+                // Capture image from stream
+                const canvas = document.createElement('canvas');
+                canvas.width = cameraStreamImg.naturalWidth;
+                canvas.height = cameraStreamImg.naturalHeight;
+                canvas.getContext('2d').drawImage(cameraStreamImg, 0, 0);
+                const base64 = canvas.toDataURL('image/jpeg').split(',')[1];
+
+                // Stop stream
+                cameraStreamContainer.style.display = 'none';
+                cameraStreamImg.src = '';
+                vscode.postMessage({ command: 'stopStream' });
+
+                // Analyze
+                visionContainer.style.display = 'block';
+                visionDetails.innerText = "Analyzing captured image...";
+                visionThumb.innerHTML = `<img src="data:image/jpeg;base64,${base64}" style="width: 100%; height: 100%; object-fit: cover;">`;
+
+                vscode.postMessage({
+                    command: 'analyzeImage',
+                    base64: base64
+                });
+            });
+        }
+
+        if (btnCloseStream) {
+            btnCloseStream.addEventListener('click', () => {
+                cameraStreamContainer.style.display = 'none';
+                cameraStreamImg.src = '';
+                vscode.postMessage({ command: 'stopStream' }); // Stop python backing
+            });
+        }
+
+        if (btnRecordStart) {
+            btnRecordStart.addEventListener('click', () => {
+                btnRecordStart.style.display = 'none';
+                btnRecordStop.style.display = 'block';
+                vscode.postMessage({ command: 'startRecording', url: currentStreamUrl });
+            });
+        }
+
+        if (btnRecordStop) {
+            btnRecordStop.addEventListener('click', () => {
+                btnRecordStop.style.display = 'none';
+                btnRecordStart.style.display = 'block';
+                cameraStreamContainer.style.display = 'none'; // Close view on stop
+                vscode.postMessage({ command: 'stopRecording', url: currentStreamUrl });
+            });
+        }
+
 
         // Handle File Upload
         if (btnCamera) {
@@ -804,12 +1266,12 @@
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     const base64 = event.target.result.split(',')[1];
-                    
+
                     // Show loading state
                     visionContainer.style.display = 'block';
                     visionDetails.innerText = "Analyzing image...";
                     visionThumb.innerHTML = `<img src="${event.target.result}" style="width: 100%; height: 100%; object-fit: cover;">`;
-                    
+
                     vscode.postMessage({
                         command: 'analyzeImage',
                         base64: base64
@@ -824,13 +1286,9 @@
                 // Visual feedback
                 const isActive = btnUseReference.classList.toggle('active');
                 if (isActive) {
-                    btnUseReference.style.background = 'var(--vscode-button-background)';
-                    btnUseReference.style.color = 'var(--vscode-button-foreground)';
                     btnUseReference.textContent = "Reference Active";
                     vscode.postMessage({ command: 'useVisionReference', state: true });
                 } else {
-                    btnUseReference.style.background = 'var(--vscode-button-secondaryBackground)';
-                    btnUseReference.style.color = 'var(--vscode-button-secondaryForeground)';
                     btnUseReference.textContent = "Use as Reference";
                     vscode.postMessage({ command: 'useVisionReference', state: false });
                 }
@@ -843,12 +1301,10 @@
                 visionDetails.innerText = "No image analyzed.";
                 visionThumb.innerHTML = '<span style="font-size: 24px;">📷</span>';
                 fileInput.value = ''; // Reset file input
-                
+
                 // Reset reference button
                 if (btnUseReference) {
                     btnUseReference.classList.remove('active');
-                    btnUseReference.style.background = 'var(--vscode-button-secondaryBackground)';
-                    btnUseReference.style.color = 'var(--vscode-button-secondaryForeground)';
                     btnUseReference.textContent = "Use as Reference";
                 }
 
@@ -862,7 +1318,7 @@
                 vscode.postMessage({ command: 'buildFirmware' });
             });
         }
-        
+
         if (btnFlash) {
             btnFlash.addEventListener('click', () => {
                 deploymentStatus.textContent = "Starting Flash...";
@@ -887,7 +1343,7 @@
         function updateSerialUI(data) {
             serialResults.style.display = 'block';
             let html = '';
-            
+
             if (data.thoughtProcess) {
                 html += `
                     <div class="thought-process-container">
@@ -903,16 +1359,12 @@
                 `;
             }
 
-            // Since we moved to plain text output, we rely on the thoughtProcess above to show the main content.
-            // If there are legacy structured fields (suspectedIssues, etc.), we can still show them below,
-            // but for the new flow, thoughtProcess contains everything.
-
             if (data.confidence !== undefined && data.confidence < 1.0) {
-                 html += `<div style="margin-top: 5px; font-size: 0.8em; opacity: 0.8;">Confidence: ${(data.confidence * 100).toFixed(0)}%</div>`;
+                html += `<div style="margin-top: 5px; font-size: 0.8em; opacity: 0.8;">Confidence: ${(data.confidence * 100).toFixed(0)}%</div>`;
             }
 
             if (data.suspectedIssues && data.suspectedIssues.length > 0) {
-                html += `<div style="margin-top:5px; color: var(--vscode-errorForeground);"><strong>Issues:</strong></div>`;
+                html += `<div style="margin-top:5px; color: #ff5555;"><strong>Issues:</strong></div>`;
                 html += `<ul>${data.suspectedIssues.map(i => `<li>${i}</li>`).join('')}</ul>`;
             }
 
@@ -922,26 +1374,26 @@
             }
 
             if (data.suggestedFixes && data.suggestedFixes.length > 0) {
-                html += `<div style="margin-top:5px;"><strong>Fixes:</strong></div>`;
+                html += `<div style="margin-top:10px;"><strong>Suggested Fixes:</strong></div>`;
                 data.suggestedFixes.forEach(fix => {
-                    html += `<div style="border: 1px solid var(--vscode-panel-border); padding: 5px; margin-top: 5px;">`;
-                    html += `<div>${fix.description}</div>`;
+                    html += `<div class="fix-card">`;
+                    html += `<div class="fix-description">${fix.description}</div>`;
                     if (fix.diff) {
-                        html += `<button class="btn-preview-diff" data-diff="${encodeURIComponent(fix.diff)}" style="margin-top: 5px; font-size: 0.8em;">Preview Fix</button>`;
+                        html += `<button class="btn-preview-diff" data-diff="${encodeURIComponent(fix.diff)}" style="font-size: 0.7em; padding: 6px 12px;">Preview Fix</button>`;
                     }
                     html += `</div>`;
                 });
             }
-            
+
             serialResults.innerHTML = html;
 
             // Re-attach diff listeners
             document.querySelectorAll('.btn-preview-diff').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     const diff = decodeURIComponent(e.target.dataset.diff);
-                    vscode.postMessage({ 
-                        command: 'previewDiff', 
-                        diff: diff 
+                    vscode.postMessage({
+                        command: 'previewDiff',
+                        diff: diff
                     });
                 });
             });
@@ -949,7 +1401,7 @@
 
         function updateVisionUI(data) {
             visionContainer.style.display = 'block';
-            
+
             // Reset button state
             if (btnUseReference) {
                 btnUseReference.textContent = "Use as Reference";
@@ -960,7 +1412,7 @@
             let html = `<strong>Boards:</strong> ${data.detectedBoards.join(', ') || 'None'}<br>`;
             html += `<strong>Components:</strong> ${data.detectedComponents.join(', ') || 'None'}<br>`;
             html += `<strong>Confidence:</strong> ${(data.confidence * 100).toFixed(0)}%`;
-            
+
             visionDetails.innerHTML = html;
 
             if (data.mismatchWarning) {
@@ -980,37 +1432,96 @@
             '/help'
         ];
 
+        const CONTEXT_MENU_ITEMS = [
+            // Contexts
+            '@workspace',
+            '@file',
+            '@selection',
+            '@terminal',
+            '@changes',
+            '@problems',
+            // Commands
+            '@analyze',
+            '@help',
+            '@clear',
+            // Actions
+            '@build', // Build Firmware
+            '@flash', // Flash Firmware
+            '@serial', // Open Serial Monitor
+            '@logs', // Analyze Serial Logs
+            '@camera', // Capture Image
+            '@video' // Capture Video
+        ];
+
         let currentFocus = -1;
 
         // Focus input on load
         input.focus();
 
         // Input Event for Autocomplete
-        input.addEventListener('input', function(e) {
+        input.addEventListener('input', function (e) {
             const val = this.value;
             closeAllLists();
-            if (!val || !val.startsWith('/')) { return false; }
-            
+
+            if (!val) return false;
+
+            let matches = [];
+            let isCommand = false;
+            let isContext = false;
+
+            if (val.startsWith('/')) {
+                matches = AVAILABLE_COMMANDS.filter(cmd => cmd.toLowerCase().startsWith(val.toLowerCase()));
+                isCommand = true;
+            } else if (val.startsWith('@')) {
+                // If val is just '@', show all context items
+                if (val === '@') {
+                    matches = CONTEXT_MENU_ITEMS;
+                } else {
+                    matches = CONTEXT_MENU_ITEMS.filter(item => item.toLowerCase().startsWith(val.toLowerCase()));
+                }
+                isContext = true;
+            } else {
+                return false;
+            }
+
             currentFocus = -1;
-            
-            // Filter commands
-            const matches = AVAILABLE_COMMANDS.filter(cmd => cmd.toLowerCase().startsWith(val.toLowerCase()));
-            
+
             if (matches.length > 0) {
                 autocompleteList.style.display = 'block';
-                matches.forEach(cmd => {
+                matches.forEach(match => {
                     const item = document.createElement('div');
                     item.className = 'autocomplete-item';
+
+                    // Icon logic
+                    let icon = '';
+                    if (isContext) {
+                        if (match === '@workspace') icon = '📂 ';
+                        else if (match === '@file') icon = '📄 ';
+                        else if (match === '@selection') icon = '📝 ';
+                        else if (match === '@terminal') icon = '💻 ';
+                        else if (match === '@build') icon = '🔨 ';
+                        else if (match === '@flash') icon = '⚡ ';
+                        else if (match === '@serial') icon = '🔌 ';
+                        else if (match === '@logs') icon = '📜 ';
+                        else if (match === '@camera') icon = '📷 ';
+                        else if (match === '@video') icon = '🎥 ';
+                        else if (match === '@analyze') icon = '🧠 ';
+                        else if (match === '@help') icon = '❓ ';
+                        else icon = '🔗 ';
+                    } else {
+                        icon = '⚡ ';
+                    }
+
                     // Highlight match
-                    item.innerHTML = `<strong>${cmd.substr(0, val.length)}</strong>${cmd.substr(val.length)}`;
-                    item.innerHTML += `<input type='hidden' value='${cmd}'>`;
-                    
-                    item.addEventListener('click', function(e) {
+                    item.innerHTML = `${icon}<strong>${match.substr(0, val.length)}</strong>${match.substr(val.length)}`;
+                    item.innerHTML += `<input type='hidden' value='${match}'>`;
+
+                    item.addEventListener('click', function (e) {
                         input.value = this.getElementsByTagName('input')[0].value;
                         closeAllLists();
                         input.focus();
                     });
-                    
+
                     autocompleteList.appendChild(item);
                 });
             }
@@ -1020,7 +1531,7 @@
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault(); // Prevent submitting form if we select from list
-                
+
                 if (currentFocus > -1) {
                     if (autocompleteList.style.display !== 'none') {
                         const items = autocompleteList.getElementsByTagName('div');
@@ -1030,7 +1541,7 @@
                         }
                     }
                 }
-                
+
                 const text = input.value.trim();
                 if (text) {
                     closeAllLists();
@@ -1080,326 +1591,14 @@
         function sendCommand(text) {
             // Optimistically show command
             addEntry(text, 'command');
-            
+
             // Send to backend
             vscode.postMessage({
                 command: 'executeCommand',
                 text: text
             });
         }
-
-        // Handle messages from Extension
-        window.addEventListener('message', event => {
-            const message = event.data;
-            switch (message.type) {
-                case 'modelList':
-                    modelRequestInFlight = false;
-                    modelSelect.innerHTML = '';
-                    if (message.models && message.models.length > 0) {
-                        message.models.forEach(m => {
-                            const option = document.createElement('option');
-                            option.value = m;
-                            option.textContent = m;
-                            modelSelect.appendChild(option);
-                        });
-                    }
-                    if (message.selected) {
-                        const exists = Array.from(modelSelect.options).some(o => o.value === message.selected);
-                        if (!exists) {
-                            const option = document.createElement('option');
-                            option.value = message.selected;
-                            option.textContent = message.selected;
-                            modelSelect.appendChild(option);
-                        }
-                        modelSelect.value = message.selected;
-                    }
-                    modelStatus.textContent = message.error ? message.error : `${(message.models || []).length} models`;
-                    break;
-                case 'modelSelected':
-                    modelStatus.textContent = `Selected ${message.model}`;
-                    break;
-                case 'addResult':
-                    addEntry(message.text, 'result');
-                    break;
-                case 'showAnalysis':
-                    renderAnalysis(message.data, message.metadata);
-                    break;
-                case 'showHardwareValidation':
-                    renderHardwareValidation(message.data, message.metadata);
-                    break;
-                case 'visionResult':
-                    updateVisionUI(message.data);
-                    break;
-                case 'buildStatus':
-                    deploymentStatus.textContent = message.status === 'success' ? 'Build Success' : 'Build Failed';
-                    break;
-                case 'flashStatus':
-                    deploymentStatus.textContent = message.status === 'success' ? 'Flash Success' : 'Flash Failed';
-                    break;
-                case 'analysisLoading':
-                    addEntry('<em>Analyzing...</em>', 'result');
-                    break;
-                case 'analysisError':
-                    addEntry(`<span style="color:var(--vscode-errorForeground)">Analysis Failed: ${message.error}</span>`, 'result');
-                    break;
-                case 'successMessage':
-                    addEntry(`<div style="padding: 12px; background: var(--vscode-textBlockQuote-background); border-left: 4px solid var(--vscode-testing-iconPassed); border-radius: 4px; display: flex; align-items: center; gap: 10px;">
-                        <span style="font-size: 1.2em;">${message.text}</span>
-                    </div>`, 'result');
-                    break;
-                case 'historyList':
-                    renderHistoryList(message.sessions);
-                    break;
-                case 'loadChat':
-                    loadChatSession(message.session);
-                    break;
-                case 'clearContext':
-                    // Clear Vision UI
-                    visionContainer.style.display = 'none';
-                    visionDetails.innerText = "No image analyzed.";
-                    if (visionThumb) visionThumb.innerHTML = '<span style="font-size: 24px;">📷</span>';
-                    if (fileInput) fileInput.value = '';
-                    if (btnUseReference) {
-                        btnUseReference.classList.remove('active');
-                        btnUseReference.style.background = 'var(--vscode-button-secondaryBackground)';
-                        btnUseReference.style.color = 'var(--vscode-button-secondaryForeground)';
-                        btnUseReference.textContent = "Use as Reference";
-                    }
-                    // Clear Video UI
-                    videoContextContainer.style.display = 'none';
-                    if (videoDetails) videoDetails.textContent = "No video selected.";
-                    break;
-            }
-        });
-
-        function addEntry(text, type) {
-            const div = document.createElement('div');
-            div.className = 'entry';
-            
-            if (type === 'command') {
-                const cmdDiv = document.createElement('div');
-                cmdDiv.className = 'entry-command';
-                cmdDiv.textContent = text;
-                div.appendChild(cmdDiv);
-            } else {
-                const resDiv = document.createElement('div');
-                resDiv.className = 'entry-result';
-                resDiv.innerHTML = text; // Allow simple HTML
-                div.appendChild(resDiv);
-            }
-            
-            stream.appendChild(div);
-            stream.scrollTop = stream.scrollHeight;
-        }
-
-        function formatSimpleMarkdown(text) {
-            if (!text) return '';
-            // 1. Escape HTML (basic)
-            let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-            
-            // 2. Bold (**text**)
-            html = html.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
-            
-            // 3. Italic (*text*)
-            html = html.replace(/\*(.*?)\*/g, '<i>$1</i>');
-            
-            // 4. Code (`text`)
-            html = html.replace(/`(.*?)`/g, '<code style="background:var(--vscode-textCodeBlock-background); padding:2px 4px; border-radius:3px; font-family:var(--vscode-editor-font-family);">$1</code>');
-            
-            // 5. Headers (### Text) - convert to bold block
-            html = html.replace(/^###\s+(.*$)/gm, '<div style="font-weight:600; margin-top:10px; margin-bottom:5px;">$1</div>');
-            
-            return html;
-        }
-
-        function renderAnalysis(analysis, metadata) {
-            const container = document.createElement('div');
-            container.className = 'entry';
-            
-            const card = document.createElement('div');
-            card.className = 'entry-result analysis-card';
-            
-            // Header
-            card.innerHTML = `
-                <h3>${metadata.source === 'selection' ? '🔎 Selection' : metadata.source === 'workspace' ? '📂 Workspace' : metadata.source === 'vision-chat' ? '👁️ Vision Chat' : metadata.source === 'video-analysis' ? '🎥 Video Analysis' : '📄 File'}: ${metadata.filePath || 'General Chat'}</h3>
-                <div style="margin-bottom: 15px; font-size: 1.1em; line-height: 1.5; white-space: pre-wrap;">${formatSimpleMarkdown(analysis.summary)}</div>
-                
-                ${analysis.thoughtProcess ? `
-                <div class="analysis-section">
-                    <details open>
-                        <summary style="cursor: pointer; font-weight: bold; color: var(--vscode-descriptionForeground); display: flex; align-items: center; gap: 5px;">
-                             <span class="status-dot" style="background-color: var(--vscode-charts-blue);"></span> 🧠 ${metadata.model || 'Gemini'} Thinking Process
-                        </summary>
-                        <div style="margin-top: 10px; padding: 10px; background: var(--vscode-editor-inactiveSelectionBackground); border-left: 2px solid var(--vscode-charts-blue); border-radius: 0 4px 4px 0; font-family: var(--vscode-editor-font-family); white-space: pre-wrap; font-size: 0.9em; max-height: 300px; overflow-y: auto; color: var(--vscode-editor-foreground);">
-                            ${analysis.thoughtProcess.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
-                        </div>
-                    </details>
-                </div>` : ''}
-
-                <div class="analysis-section">
-                    <strong>⚠️ Issues (${analysis.detectedIssues.length})</strong>
-                    <ul>${analysis.detectedIssues.map(i => `<li>${i}</li>`).join('')}</ul>
-                </div>
-                
-                <div class="analysis-section">
-                    <strong>💡 Recommendations</strong>
-                    <ul>${analysis.recommendations.map(r => `<li>${r}</li>`).join('')}</ul>
-                </div>
-            `;
-
-            // Suggestions
-            if (analysis.suggestions && analysis.suggestions.length > 0) {
-                const bulkActions = document.createElement('div');
-                bulkActions.className = 'analysis-section';
-                
-                const applyAllBtn = document.createElement('button');
-                applyAllBtn.textContent = 'Apply All Fixes';
-                applyAllBtn.onclick = () => {
-                    vscode.postMessage({
-                        command: 'applyAllDiffs',
-                        diffs: analysis.suggestions.map(s => s.diff)
-                    });
-                };
-                
-                bulkActions.appendChild(applyAllBtn);
-                card.appendChild(bulkActions);
-
-                const suggestionsTitle = document.createElement('div');
-                suggestionsTitle.className = 'analysis-section';
-                suggestionsTitle.innerHTML = `<strong>✨ Code Suggestions (${analysis.suggestions.length})</strong>`;
-                card.appendChild(suggestionsTitle);
-
-                analysis.suggestions.forEach((suggestion, index) => {
-                    const sItem = document.createElement('div');
-                    sItem.className = 'suggestion-item';
-                    
-                    const sHeader = document.createElement('div');
-                    sHeader.className = 'suggestion-header';
-                    
-                    const fileBadge = suggestion.filePath 
-                        ? `<span style="font-size:0.8em; opacity:0.7; margin-right:8px; background:var(--vscode-badge-background); color:var(--vscode-badge-foreground); padding:2px 4px; border-radius:3px;">${suggestion.filePath}</span>` 
-                        : '';
-                        
-                    sHeader.innerHTML = `<div style="display:flex; align-items:center; overflow:hidden; text-overflow:ellipsis;">${fileBadge}<span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${suggestion.description}</span></div> <span>▼</span>`;
-                    sHeader.onclick = () => {
-                        const body = sItem.querySelector('.suggestion-body');
-                        body.classList.toggle('open');
-                        sHeader.querySelector('span:last-child').textContent = body.classList.contains('open') ? '▲' : '▼';
-                    };
-
-                    const sBody = document.createElement('div');
-                    sBody.className = 'suggestion-body';
-                    
-                    const actions = document.createElement('div');
-                    actions.className = 'suggestion-actions';
-                    
-                    const btnPreview = document.createElement('button');
-                    btnPreview.textContent = 'Preview Diff';
-                    btnPreview.onclick = () => {
-                        vscode.postMessage({
-                            command: 'previewDiff',
-                            diff: suggestion.diff
-                        });
-                    };
-
-                    actions.appendChild(btnPreview);
-                    
-                    sBody.appendChild(actions);
-                    sItem.appendChild(sHeader);
-                    sItem.appendChild(sBody);
-                    card.appendChild(sItem);
-                });
-            }
-
-            // Footer
-            const footer = document.createElement('div');
-            footer.className = 'analysis-meta';
-            footer.innerHTML = `Confidence: ${(analysis.confidence * 100).toFixed(0)}% | Hardware: ${metadata.hardware || "None"}`;
-            card.appendChild(footer);
-
-            container.appendChild(card);
-            stream.appendChild(container);
-            stream.scrollTop = stream.scrollHeight;
-        }
-
-        requestModels();
-
-        function renderHardwareValidation(result, metadata) {
-            const container = document.createElement('div');
-            container.className = 'entry';
-            
-            const card = document.createElement('div');
-            card.className = 'entry-result analysis-card';
-            
-            // Header
-            card.innerHTML = `
-                <h3>🛠️ Hardware Validation</h3>
-                <p><strong>Board:</strong> ${metadata.board}</p>
-                <div style="margin-bottom: 10px;">
-                    <span style="font-weight: bold; color: ${result.status === 'pass' ? 'var(--vscode-testing-iconPassed)' : result.status === 'fail' ? 'var(--vscode-testing-iconFailed)' : 'var(--vscode-charts-yellow)'}; text-transform: uppercase;">
-                        Status: ${result.status}
-                    </span>
-                </div>
-                
-                <div class="analysis-section">
-                    <strong>⚠️ Issues (${result.issues.length})</strong>
-                    <ul>${result.issues.length > 0 ? result.issues.map(i => `<li>${i}</li>`).join('') : '<li>None detected.</li>'}</ul>
-                </div>
-
-                 <div class="analysis-section">
-                    <strong>🔌 Peripherals Detected</strong>
-                    <ul>${result.peripherals.length > 0 ? result.peripherals.map(p => `<li>${p}</li>`).join('') : '<li>None detected.</li>'}</ul>
-                </div>
-                
-                <div class="analysis-section" style="margin-top: 15px;">
-                    <button id="btn-generate-sim" onclick="generateSimulation()">Generate Wokwi Simulation</button>
-                    <button id="btn-open-sim" class="secondary" style="display:none;" onclick="openSimulation()">Open Simulation</button>
-                </div>
-            `;
-            
-            // Store data for callbacks
-            card.dataset.result = JSON.stringify(result);
-            card.dataset.metadata = JSON.stringify(metadata);
-
-            container.appendChild(card);
-            stream.appendChild(container);
-            stream.scrollTop = stream.scrollHeight;
-            
-            // Bind data to window for the button functions to access last result (simple hack)
-            window.lastValidationResult = result;
-            window.lastValidationMetadata = metadata;
-        }
-
-        function generateSimulation() {
-            if (!window.lastValidationResult) return;
-            
-            vscode.postMessage({
-                command: 'generateSimulation',
-                data: window.lastValidationResult,
-                metadata: window.lastValidationMetadata
-            });
-            
-            // Update UI
-            const btnGen = document.getElementById('btn-generate-sim');
-            if (btnGen) {
-                btnGen.textContent = "Simulation Generated!";
-                btnGen.disabled = true;
-            }
-            
-            const btnOpen = document.getElementById('btn-open-sim');
-            if (btnOpen) {
-                btnOpen.style.display = 'inline-block';
-            }
-        }
-
-        function openSimulation() {
-             if (!window.lastValidationMetadata) return;
-             
-             vscode.postMessage({
-                command: 'openSimulation',
-                workspaceRoot: window.lastValidationMetadata.workspaceRoot
-            });
-        }
     </script>
 </body>
+
 </html>

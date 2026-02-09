@@ -14,6 +14,7 @@ import { runBuild, runFlash } from '../commands/buildAndFlash';
 import { PlatformIOManager } from '../firmware/platformioManager';
 import { SerialManager } from '../serial/serialManager';
 import { AnalysisInput, SerialAnalysisResult } from '../ai/types';
+import { PatchedContentProvider } from '../utils/patchedContentProvider';
 import { CameraBridge } from '../vision/cameraBridge';
 
 export class AriaPanel {
@@ -25,7 +26,7 @@ export class AriaPanel {
     private _currentVisionImage: string | null = null;
     private _visionReferenceActive: boolean = false;
     private _lastAnalyzedPath: string | null = null;
-    
+
     // Video State
     private _currentVideoPath: string | undefined;
     private _currentVideoUri: string | undefined;
@@ -55,10 +56,10 @@ export class AriaPanel {
     public async startVideoCapture() {
         try {
             const videoPath = await CameraBridge.recordVideo((url) => {
-                this._panel.webview.postMessage({ 
-                    command: 'showStream', 
+                this._panel.webview.postMessage({
+                    command: 'showStream',
                     url: url,
-                    mode: 'video' 
+                    mode: 'video'
                 });
             });
 
@@ -88,7 +89,7 @@ export class AriaPanel {
         this._panel = panel;
         this._extensionUri = extensionUri;
         this._chatManager = new ChatManager(context);
-        
+
         // Initialize Session
         const sessions = this._chatManager.getSessions();
         if (sessions.length > 0) {
@@ -175,7 +176,7 @@ export class AriaPanel {
                     case 'triggerCapture':
                         if (message.url) {
                             try {
-                                fetch(message.url + '/trigger', { method: 'POST' }).catch(e => 
+                                fetch(message.url + '/trigger', { method: 'POST' }).catch(e =>
                                     Logger.log(`[AriaPanel] Trigger catch: ${e}`)
                                 );
                             } catch (err) {
@@ -183,6 +184,7 @@ export class AriaPanel {
                             }
                         }
                         return;
+
                     case 'stopStream':
                         // If using CameraBridge in stream/native-python mode, we need to stop it
                         // Since CameraBridge is static, we can just call stopStream()
@@ -232,7 +234,7 @@ export class AriaPanel {
     }
 
     public static createOrShow(context: vscode.ExtensionContext) {
-        const column = vscode.ViewColumn.Beside; 
+        const column = vscode.ViewColumn.Beside;
         const extensionUri = context.extensionUri;
 
         // If we already have a panel, show it.
@@ -307,6 +309,16 @@ export class AriaPanel {
         try {
             const models = await GeminiClient.listAvailableModels(apiKey);
             this._panel.webview.postMessage({ type: 'modelList', models, selected });
+
+            // Restore Chat History on Load
+            const currentSessionId = this._chatManager.getCurrentSessionId();
+            if (currentSessionId) {
+                const session = this._chatManager.getSession(currentSessionId);
+                // Send with isInit flag so frontend knows not to wipe locally restored state if empty
+                if (session) {
+                    this._panel.webview.postMessage({ type: 'loadChat', session: session, isInit: true });
+                }
+            }
         } catch (e) {
             this._panel.webview.postMessage({ type: 'modelList', models: [], selected, error: String(e) });
         }
@@ -329,7 +341,7 @@ export class AriaPanel {
             Logger.log(`Error loading HTML: ${e}`);
             htmlContent = `<h1>Error loading panel</h1>`;
         }
-        
+
         return htmlContent;
     }
 
@@ -357,21 +369,31 @@ export class AriaPanel {
             return;
         }
 
-        // Create Temp Files
-        const tmpDir = os.tmpdir();
-        const originalFile = path.join(tmpDir, `aria_original_${Date.now()}.cpp`); // simplified extension assumption
-        const modifiedFile = path.join(tmpDir, `aria_modified_${Date.now()}.cpp`);
-
+        // Virtual Diff Provider Logic
         try {
-            fs.writeFileSync(originalFile, originalText);
-            fs.writeFileSync(modifiedFile, patchedText);
+            if (!targetUri) {
+                vscode.window.showErrorMessage("A.R.I.A: Cannot preview diff - Target file not found.");
+                return;
+            }
 
-            const originalUri = vscode.Uri.file(originalFile);
-            const modifiedUri = vscode.Uri.file(modifiedFile);
+            // Create a virtual URI for the "Suggested" side
+            // format: aria-preview://host/filename.ext (Suggested)
+            const filename = path.basename(targetUri.fsPath);
+            const previewUri = vscode.Uri.parse(`${PatchedContentProvider.scheme}:/${filename} (Suggested)`);
 
-            await vscode.commands.executeCommand("vscode.diff", originalUri, modifiedUri, "A.R.I.A Suggestion Preview");
+            // Update the content in our provider
+            PatchedContentProvider.getInstance().setContent(previewUri, patchedText);
+
+            // Command: vscode.diff(left, right, title)
+            await vscode.commands.executeCommand(
+                "vscode.diff",
+                targetUri, // Left side: Actual file on disk
+                previewUri, // Right side: Virtual patched content
+                `${filename} (Original ↔ Suggestion)`
+            );
         } catch (e) {
             Logger.log(`[AriaPanel] Preview error: ${e}`);
+            vscode.window.showErrorMessage(`A.R.I.A: Preview failed: ${e}`);
         }
     }
 
@@ -433,10 +455,51 @@ export class AriaPanel {
         return this._resolveTargetFromPath(this._lastAnalyzedPath);
     }
 
+    private _isSafeToApply(uri: vscode.Uri, content: string): boolean {
+        const filename = path.basename(uri.fsPath).toLowerCase();
+
+        // Block C/C++ code in INI files
+        if (filename.endsWith('.ini')) {
+            // Check for C++ keywords
+            const cppKeywords = [
+                '#include',
+                'void setup',
+                'void loop',
+                'int main',
+                'class ',
+                'namespace ',
+                'std::',
+                'using namespace'
+            ];
+
+            for (const keyword of cppKeywords) {
+                if (content.includes(keyword)) {
+                    Logger.log(`[Safety] Blocked C++ code in ${filename}: Found '${keyword}'`);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     private async _applyDiff(diff: string): Promise<boolean> {
         const targetUri = (await this._resolveTargetFromDiff(diff)) ?? (await this._getFallbackTargetUri());
         Logger.log(`[A.R.I.A] ApplyDiff Target: ${targetUri?.fsPath ?? 'undefined'}`);
-        
+
+        if (!targetUri) {
+            Logger.log(`[A.R.I.A] ApplyDiff Failed: No target URI resolved.`);
+            return false;
+        }
+
+        // Safety Check: Prevent overwriting config files with source code
+        // This often happens if the AI fails to generate diff headers and falls back to the open file (e.g. platformio.ini)
+        if (!this._isSafeToApply(targetUri, diff)) {
+            const msg = `Safety Block: Attempted to write C/C++ code to a configuration file (${path.basename(targetUri.fsPath)}). Operation aborted.`;
+            Logger.log(`[A.R.I.A] ${msg}`);
+            vscode.window.showErrorMessage(`A.R.I.A: ${msg}`);
+            return false;
+        }
+
         const editor = getLastActiveEditor();
         const document = targetUri ? await vscode.workspace.openTextDocument(targetUri) : editor?.document;
         if (!document) {
@@ -512,15 +575,15 @@ export class AriaPanel {
         Logger.log(`[A.R.I.A] Applied fixes: ${applied}, failed: ${failed}`);
         if (failed > 0) {
             vscode.window.showWarningMessage(`A.R.I.A: Applied ${applied} fixes, ${failed} failed.`);
-            this._panel.webview.postMessage({ 
-                type: 'analysisError', 
-                error: `Applied ${applied} fixes, but ${failed} failed. Please review manually.` 
+            this._panel.webview.postMessage({
+                type: 'analysisError',
+                error: `Applied ${applied} fixes, but ${failed} failed. Please review manually.`
             });
         } else {
             // Success! Send message to UI
-            this._panel.webview.postMessage({ 
-                type: 'successMessage', 
-                text: '<strong>✅ Fixed it.</strong> Code updated successfully.' 
+            this._panel.webview.postMessage({
+                type: 'successMessage',
+                text: '<strong>✅ Fixed it.</strong> Code updated successfully.'
             });
             // Also clear the analysis result from UI to reduce clutter? 
             // The user said "give me a msg saying fixed it", implying they want to see that.
@@ -565,7 +628,7 @@ export class AriaPanel {
                 // The previous read showed:
                 // interface AnalysisInput { ... visionContext?: { ... } }
                 // So I will keep it but ensure types match.
-                 aiInput.visionContext = {
+                aiInput.visionContext = {
                     boards: this._currentVisionResult.detectedBoards,
                     components: this._currentVisionResult.detectedComponents,
                     confidence: this._currentVisionResult.confidence
@@ -596,9 +659,9 @@ export class AriaPanel {
 
             if (appliedInThisRound === 0) {
                 // If we found issues but couldn't apply any fixes, stop to avoid infinite loop
-                this._panel.webview.postMessage({ 
-                    type: 'analysisError', 
-                    error: 'Could not apply remaining fixes. Please review manually.' 
+                this._panel.webview.postMessage({
+                    type: 'analysisError',
+                    error: 'Could not apply remaining fixes. Please review manually.'
                 });
                 // Show the last analysis so user can see what's wrong
                 this._panel.webview.postMessage({
@@ -612,13 +675,13 @@ export class AriaPanel {
                 });
                 return;
             }
-            
+
             // If we applied fixes, loop again to verify (Silent Re-analysis)
         }
 
-        this._panel.webview.postMessage({ 
-            type: 'analysisError', 
-            error: 'Reached max auto-fix iterations. Partial fixes applied.' 
+        this._panel.webview.postMessage({
+            type: 'analysisError',
+            error: 'Reached max auto-fix iterations. Partial fixes applied.'
         });
     }
 
@@ -685,7 +748,7 @@ export class AriaPanel {
             const json = WokwiGenerator.generate(metadata.workspaceRoot, metadata.board, validationResult);
             // Pass metadata.board as the 3rd argument (boardId)
             WokwiGenerator.createProjectFiles(metadata.workspaceRoot, json, metadata.board);
-            
+
             vscode.window.showInformationMessage("A.R.I.A: Simulation files generated in .wokwi/ and wokwi.toml");
             this._panel.webview.postMessage({ type: 'simulationReady', workspaceRoot: metadata.workspaceRoot });
         } catch (e) {
@@ -733,7 +796,7 @@ export class AriaPanel {
             if (ext === '.mpeg' || ext === '.mpg') mime = 'video/mpeg';
 
             this._panel.webview.postMessage({ type: 'videoStatus', status: 'Uploading to Gemini...', ready: false });
-            
+
             const uri = await GeminiClient.uploadFile(filePath, mime);
             this._currentVideoUri = uri;
 
@@ -754,7 +817,7 @@ export class AriaPanel {
             vscode.window.showErrorMessage("Video not ready yet.");
             return;
         }
-        
+
         // Show loading in main chat
         this._panel.webview.postMessage({ type: 'analysisLoading', message: 'Analyzing video (Gemini 3 Pro)...' });
 
@@ -765,8 +828,8 @@ export class AriaPanel {
             if (ext === '.avi') mime = 'video/x-msvideo';
             if (ext === '.webm') mime = 'video/webm';
 
-            const result = await GeminiClient.analyzeVideo(this._currentVideoUri, mime, "Analyze this video. The user is describing a hardware issue. Identify the board, check the wiring against standard protocols, and explain why it might not be working based on the visual and audio evidence.");
-            
+            const result = await GeminiClient.analyzeVideo(this._currentVideoUri, mime, "Analyze this video. Identify the hardware, board, and connections. If you see any obvious issues or bugs in the setup, point them out.");
+
             this._panel.webview.postMessage({
                 type: 'showAnalysis',
                 data: result,
@@ -777,9 +840,9 @@ export class AriaPanel {
                 }
             });
         } catch (e) {
-            this._panel.webview.postMessage({ 
-                type: 'analysisError', 
-                error: `Video analysis failed: ${e instanceof Error ? e.message : String(e)}` 
+            this._panel.webview.postMessage({
+                type: 'analysisError',
+                error: `Video analysis failed: ${e instanceof Error ? e.message : String(e)}`
             });
         }
     }
@@ -792,7 +855,7 @@ export class AriaPanel {
     private async _handleOpenSimulation(workspaceRoot: string) {
         const diagramPath = path.join(workspaceRoot, '.wokwi', 'diagram.json');
         const uri = vscode.Uri.file(diagramPath);
-        
+
         try {
             // Check if file exists
             if (!fs.existsSync(diagramPath)) {
@@ -803,7 +866,7 @@ export class AriaPanel {
             // Open the file so it is the active editor
             const doc = await vscode.workspace.openTextDocument(uri);
             await vscode.window.showTextDocument(doc, { preview: false });
-            
+
             // Check for Wokwi extension
             const wokwiExt = vscode.extensions.getExtension('Wokwi.wokwi-vscode');
             if (!wokwiExt) {
@@ -840,47 +903,186 @@ export class AriaPanel {
         let board = boardHint.trim();
 
         if (!board) {
-             board = await vscode.window.showInputBox({
-                 prompt: "Enter PlatformIO Board ID (e.g., teensy41, uno, esp32dev)",
-                 placeHolder: "teensy41"
-             }) || "";
+            board = await vscode.window.showInputBox({
+                prompt: "Enter PlatformIO Board ID (e.g., teensy41, uno, esp32dev)",
+                placeHolder: "teensy41"
+            }) || "";
         }
 
         if (!board) {
-             this._panel.webview.postMessage({ type: 'addResult', text: "PlatformIO setup cancelled: No board specified." });
-             return;
+            this._panel.webview.postMessage({ type: 'addResult', text: "PlatformIO setup cancelled: No board specified." });
+            return;
         }
 
         this._panel.webview.postMessage({ type: 'analysisLoading', message: `Initializing PlatformIO for ${board}...` });
-        
+
         const success = await PlatformIOManager.initProject(board, root);
         if (success) {
-             this._panel.webview.postMessage({ type: 'addResult', text: `<b>PlatformIO Initialized!</b><br>Board: ${board}<br>Framework: Arduino<br>Verifying build...` });
-             
-             // Run Build to verify
-             const buildResult = await PlatformIOManager.buildFirmware(root);
-             if (buildResult.success) {
-                  this._panel.webview.postMessage({ type: 'successMessage', text: `<strong>✅ Ready to Flash!</strong><br>Project initialized and built successfully.` });
-             } else {
-                  this._panel.webview.postMessage({ type: 'analysisError', error: `Project initialized but build failed. See Output Channel for details.` });
-             }
+            this._panel.webview.postMessage({ type: 'addResult', text: `<b>PlatformIO Initialized!</b><br>Board: ${board}<br>Framework: Arduino<br>Verifying build...` });
+
+            // Run Build to verify
+            const buildResult = await PlatformIOManager.buildFirmware(root);
+            if (buildResult.success) {
+                this._panel.webview.postMessage({ type: 'successMessage', text: `<strong>✅ Ready to Flash!</strong><br>Project initialized and built successfully.` });
+            } else {
+                this._panel.webview.postMessage({ type: 'analysisError', error: `Project initialized but build failed. See Output Channel for details.` });
+            }
         } else {
-             this._panel.webview.postMessage({ type: 'analysisError', error: "PlatformIO Init Failed. Check logs." });
+            this._panel.webview.postMessage({ type: 'analysisError', error: "PlatformIO Init Failed. Check logs." });
+        }
+    }
+
+    private async _handleGenerateImage(prompt: string) {
+        this._panel.webview.postMessage({ type: 'analysisLoading', message: 'Generating Schematic with Gemini 3 Pro Preview...' });
+
+        try {
+            Logger.log(`[A.R.I.A] Generating Schematic for prompt: ${prompt}`);
+
+            // Enhanced prompt for schematic context
+            const finalPrompt = `Circuit: ${prompt}. Ensure all connections are logical and professional.`;
+
+            // Use Gemini 3 Pro (Hybrid Image/SVG Mode)
+            const result = await GeminiClient.generateSchematicSVG(finalPrompt);
+
+            if (result) {
+                Logger.log('[A.R.I.A] Schematic generation successful');
+
+                // Detect type
+                const isSvg = result.trim().startsWith('<svg');
+
+                this._panel.webview.postMessage({
+                    type: 'showImage',
+                    image: result,
+                    isSvg: isSvg,
+                    prompt: prompt,
+                    metadata: {
+                        model: 'gemini-3-pro-image-preview'
+                    }
+                });
+            } else {
+                Logger.log('[A.R.I.A] Schematic generation returned null');
+                this._panel.webview.postMessage({ type: 'analysisError', error: "Schematic generation returned no results." });
+            }
+        } catch (e) {
+            Logger.log(`[A.R.I.A] Schematic Gen Failed: ${e}`);
+            this._panel.webview.postMessage({ type: 'analysisError', error: `Schematic Gen Failed: ${e}` });
         }
     }
 
     private async _handleCommand(text: string) {
+        text = text.trim();
         Logger.log(`User command: ${text}`);
 
-        // Save to history
         this._saveUserMessage(text);
 
+        // 0. Check for Image Generation Intent - PRIORITY
+        // Matches "generate ... schematic", "draw ... diagram", "create ... image" anywhere in text
+        // Also catches "can you please generate..."
+        const imageGenRegex = /(?:generate|draw|create|make).{0,70}(?:schematic|circuit|diagram|image|picture|pcb)/i;
+        if (imageGenRegex.test(text) && !text.startsWith('/') && !text.startsWith('@')) {
+            Logger.log('[A.R.I.A] Image Intent Detected');
+            this._handleGenerateImage(text);
+            return;
+        }
+
+        // 1. Handle Action Commands (starting with / or @) - PRIORITY
+        // This must come first so users can always execute commands even with context active.
+        if (text.startsWith('/') || text.startsWith('@')) {
+            const cmd = text.split(' ')[0].toLowerCase().replace('@', '/'); // Normalize @ to / for handling
+            switch (cmd) {
+                case '/help':
+                    const response = "<b>Available Commands:</b><br><code>/analyze</code> - Analyze current file<br><code>/selection</code> - Analyze selected code<br><code>/workspace</code> - Analyze entire workspace<br><code>/validate</code> - Validate Hardware & Simulate<br><code>/capture</code> - Capture Image<br><code>/video</code> - Capture Video<br><code>/fault</code> - Explain Bare Metal Faults<br><code>@build</code> - Build Firmware<br><code>@flash</code> - Flash Firmware";
+                    this._panel.webview.postMessage({ type: 'addResult', text: response });
+                    break;
+                case '/analyze':
+                    vscode.commands.executeCommand('aria.analyzeFile');
+                    break;
+                case '/selection':
+                    vscode.commands.executeCommand('aria.analyzeSelection');
+                    break;
+                case '/workspace':
+                    vscode.commands.executeCommand('aria.analyzeWorkspace');
+                    break;
+                case '/validate':
+                    vscode.commands.executeCommand('aria.validateHardware');
+                    break;
+                case '/capture':
+                case '/camera':
+                    vscode.commands.executeCommand('aria.captureImage');
+                    break;
+                // Corrected command ID
+                case '/video':
+                    vscode.commands.executeCommand('aria.captureVideo');
+                    break;
+
+                // New Action Mappings
+                case '/build':
+                    vscode.commands.executeCommand('aria.buildFirmware');
+                    break;
+                case '/flash':
+                    vscode.commands.executeCommand('aria.flashFirmware');
+                    break;
+                case '/serial':
+                    vscode.commands.executeCommand('aria.openSerialMonitor');
+                    break;
+                case '/logs':
+                    vscode.commands.executeCommand('aria.analyzeSerialLogs');
+                    break;
+                case '/clear':
+                    this._visionReferenceActive = false;
+                    this._currentVisionImage = null;
+                    this._currentVideoUri = undefined;
+                    this._panel.webview.postMessage({ type: 'clearContext' });
+                    this._panel.webview.postMessage({ type: 'addResult', text: "<i>Context cleared. Vision/Video references removed.</i>" });
+                    break;
+                case '/fault':
+                    this._panel.webview.postMessage({ type: 'addResult', text: "<b>Bare Metal Fault Analysis</b><br>Paste your error registers (e.g. <code>HFSR: 0x40000000</code>) or ask <i>'What is a Bus Fault?'</i> directly in the chat." });
+                    break;
+                case '/init':
+                    const args = text.split(/\s+/).slice(1);
+                    const board = args[0] || "";
+                    await this._handleInitProject(board);
+                    break;
+                case '/schematic':
+                case '/image':
+                case '/draw':
+                    const prompt = text.replace(/^\/(schematic|image|draw)\s*/i, '');
+                    if (!prompt) {
+                        this._panel.webview.postMessage({ type: 'addResult', text: "Please provide a description. Usage: <code>/schematic Arduino toggling LED</code>" });
+                        return;
+                    }
+                    this._handleGenerateImage(prompt);
+                    break;
+
+                default:
+                    // Only return if it matches a known command structure but not a known command
+                    // Actually, if it starts with /, it's a command. If unknown, show error.
+                    // If starts with @, it might be @workspace which is just context.
+                    if (cmd.startsWith('/')) {
+                        this._panel.webview.postMessage({ type: 'addResult', text: `Unknown command: ${cmd}` });
+                        return;
+                    }
+                    // For @, we let it fall through to chat if it's just a context tag
+                    break;
+            }
+
+            // If we matched an action (switch case executed), we stop unless we break out validation
+            // The simple heuristic: if the switch handled it, we return.
+            // But we can't easily check that here without a flag. 
+            // Better: all known commands above 'break' the switch.
+            // If we are here, and it was a known command, we should return.
+            // Let's refine the switch to return directly.
+            if (['/help', '/analyze', '/selection', '/workspace', '/validate', '/capture', '/camera', '/video', '/build', '/flash', '/serial', '/logs', '/clear', '/fault', '/init', '/schematic', '/image', '/draw'].includes(cmd)) {
+                return;
+            }
+        }
+
         // Vision Context Chat (if active and image exists)
-        if (this._visionReferenceActive && this._currentVisionImage && !text.startsWith('/')) {
+        if (this._visionReferenceActive && this._currentVisionImage) {
             this._panel.webview.postMessage({ type: 'analysisLoading', message: 'Analyzing image with Gemini 3 Pro...' });
             try {
                 const result = await GeminiClient.chatWithImage(this._currentVisionImage, text);
-                
+
                 // Show result using standard analysis display
                 this._panel.webview.postMessage({
                     type: 'showAnalysis',
@@ -891,7 +1093,7 @@ export class AriaPanel {
                     }
                 });
             } catch (e) {
-                 this._panel.webview.postMessage({ type: 'analysisError', error: String(e) });
+                this._panel.webview.postMessage({ type: 'analysisError', error: String(e) });
             }
             return;
         }
@@ -908,7 +1110,7 @@ export class AriaPanel {
                 if (ext === '.mpeg' || ext === '.mpg') mime = 'video/mpeg';
 
                 const result = await GeminiClient.analyzeVideo(this._currentVideoUri, mime, text);
-                
+
                 this._panel.webview.postMessage({
                     type: 'showAnalysis',
                     data: result,
@@ -925,125 +1127,90 @@ export class AriaPanel {
         }
 
         let response = "";
-        if (text.startsWith('/')) {
-            const cmd = text.split(' ')[0].toLowerCase();
-            switch (cmd) {
-                case '/help':
-                    response = "<b>Available Commands:</b><br><code>/analyze</code> - Analyze current file<br><code>/selection</code> - Analyze selected code<br><code>/workspace</code> - Analyze entire workspace<br><code>/validate</code> - Validate Hardware & Simulate<br><code>/capture</code> - Capture Image<br><code>/video</code> - Capture Video<br><code>/fault</code> - Explain Bare Metal Faults";
-                    this._panel.webview.postMessage({ type: 'addResult', text: response });
-                    break;
-                case '/analyze':
-                    vscode.commands.executeCommand('aria.analyzeFile');
-                    break;
-                case '/selection':
-                    vscode.commands.executeCommand('aria.analyzeSelection');
-                    break;
-                case '/workspace':
-                    vscode.commands.executeCommand('aria.analyzeWorkspace');
-                    break;
-                case '/validate':
-                    vscode.commands.executeCommand('aria.validateHardware');
-                    break;
-                case '/capture':
-                    vscode.commands.executeCommand('aria.captureImage');
-                    break;
-                case '/video':
-                    vscode.commands.executeCommand('aria.captureVideo');
-                    break;
-                case '/fault':
-                    this._panel.webview.postMessage({ type: 'addResult', text: "<b>Bare Metal Fault Analysis</b><br>Paste your error registers (e.g. <code>HFSR: 0x40000000</code>) or ask <i>'What is a Bus Fault?'</i> directly in the chat." });
-                    break;
-                case '/clear':
-                    this._visionReferenceActive = false;
-                    this._currentVisionImage = null;
-                    this._currentVideoUri = undefined;
-                    this._panel.webview.postMessage({ type: 'clearContext' });
-                    this._panel.webview.postMessage({ type: 'addResult', text: "<i>Context cleared. Vision/Video references removed.</i>" });
-                    break;
-                case '/init':
-                    // Parse arguments from text (e.g. "/init teensy41")
-                    const args = text.split(/\s+/).slice(1);
-                    const board = args[0] || ""; 
-                    await this._handleInitProject(board);
-                    break;
-                default:
-                    response = `Unknown command: ${cmd}`;
-                    this._panel.webview.postMessage({ type: 'addResult', text: response });
+
+        // (Legacy command block removed)
+        // Legacy fallback for natural language requests
+
+        // Check for natural language PIO setup intent
+        // Matches "setup platformio for teensy41" or "set platformio..."
+        const pioMatch = text.match(/(?:setup|set)\s+platformio.*?(?:board|for)\s+([a-zA-Z0-9_-]+)/i) ||
+            (text.toLowerCase().match(/(?:setup|set)\s+platformio/) ? [text, ""] : null);
+
+        if (pioMatch) {
+            let board = pioMatch[1]?.trim() || "";
+            // Filter out common false positives from loose grammar
+            if (board.length < 3 || ['in', 'this', 'here', 'folder'].includes(board.toLowerCase())) {
+                board = "";
             }
-        } else {
-            // Check for natural language PIO setup intent
-            // Matches "setup platformio for teensy41" or "set platformio..."
-            const pioMatch = text.match(/(?:setup|set)\s+platformio.*?(?:board|for)\s+([a-zA-Z0-9_-]+)/i) ||
-                             (text.toLowerCase().match(/(?:setup|set)\s+platformio/) ? [text, ""] : null);
-            
-            if (pioMatch) {
-                let board = pioMatch[1]?.trim() || "";
-                // Filter out common false positives from loose grammar
-                if (board.length < 3 || ['in', 'this', 'here', 'folder'].includes(board.toLowerCase())) {
-                    board = "";
-                }
-                await this._handleInitProject(board);
-                return;
+            await this._handleInitProject(board);
+            return;
+        }
+
+
+
+        // New: Route general queries to GeminiClient.chat()
+        this._panel.webview.postMessage({ type: 'analysisLoading', message: 'Processing your question...' });
+        try {
+            // Inject context (active file, hardware)
+            let activeEditor = getLastActiveEditor();
+            if (!activeEditor && vscode.window.visibleTextEditors.length > 0) {
+                activeEditor = vscode.window.visibleTextEditors[0];
             }
 
-            // New: Route general queries to GeminiClient.chat()
-            this._panel.webview.postMessage({ type: 'analysisLoading', message: 'Processing your question...' });
-            try {
-                // Inject context (active file, hardware)
-                let activeEditor = getLastActiveEditor();
-                if (!activeEditor && vscode.window.visibleTextEditors.length > 0) {
-                    activeEditor = vscode.window.visibleTextEditors[0];
-                }
+            if (activeEditor) {
+                // Update last analyzed path so fallback logic works for rewrites
+                this._lastAnalyzedPath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+            }
 
-                if (activeEditor) {
-                    // Update last analyzed path so fallback logic works for rewrites
-                    this._lastAnalyzedPath = vscode.workspace.asRelativePath(activeEditor.document.uri);
-                }
+            const context: any = {
+                code: activeEditor?.document.getText(),
+                language: activeEditor?.document.languageId,
+                filePath: activeEditor?.document.uri.fsPath,
+                hardwareContext: await HardwareContext.scan().then(hw => hw.summary)
+            };
 
-                const context: any = {
-                    code: activeEditor?.document.getText(),
-                    language: activeEditor?.document.languageId,
-                    filePath: activeEditor?.document.uri.fsPath,
-                    hardwareContext: await HardwareContext.scan().then(hw => hw.summary)
-                };
-
-                // SPECIAL HANDLING: PlatformIO Configuration Context
-                // If the user wants to change board/config, we MUST inject platformio.ini content
-                // because the active file is likely main.cpp or something else.
-                const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-                if (root) {
-                    const pioPath = path.join(root, 'platformio.ini');
-                    if (fs.existsSync(pioPath)) {
-                        try {
-                            const pioContent = fs.readFileSync(pioPath, 'utf8');
-                            // Append to code context or hardware context?
-                            // Let's create a dedicated 'projectConfig' field in context or append to hardwareContext
-                            // Appending to hardwareContext is safest for now as it gets rendered into the prompt
-                            context.hardwareContext += `\n\n[Active platformio.ini Configuration]:\n${pioContent}\n(You can edit this file using a Unified Diff if requested)`;
-                            context.pioConfig = pioContent; // For specialized prompt logic if needed
-                        } catch (e) {
-                             Logger.log(`[A.R.I.A] Failed to read platformio.ini for context: ${e}`);
-                        }
+            // SPECIAL HANDLING: PlatformIO Configuration Context
+            // If the user wants to change board/config, we MUST inject platformio.ini content
+            // because the active file is likely main.cpp or something else.
+            const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (root) {
+                const pioPath = path.join(root, 'platformio.ini');
+                if (fs.existsSync(pioPath)) {
+                    try {
+                        const pioContent = fs.readFileSync(pioPath, 'utf8');
+                        // Append to code context or hardware context?
+                        // Let's create a dedicated 'projectConfig' field in context or append to hardwareContext
+                        // Appending to hardwareContext is safest for now as it gets rendered into the prompt
+                        context.hardwareContext += `\n\n[Active platformio.ini Configuration]:\n${pioContent}\n(You can edit this file using a Unified Diff if requested)`;
+                        context.pioConfig = pioContent; // For specialized prompt logic if needed
+                    } catch (e) {
+                        Logger.log(`[A.R.I.A] Failed to read platformio.ini for context: ${e}`);
                     }
                 }
-
-                const result = await GeminiClient.chat(text, context);
-                this._panel.webview.postMessage({
-                    type: 'showAnalysis',
-                    data: result,
-                    metadata: {
-                        source: 'general-chat',
-                        filePath: context.filePath ? path.basename(context.filePath) : "General Chat",
-                        fullPath: context.filePath, // Preserve full path for target resolution
-                        hardware: context.hardwareContext ? "Detected" : "None",
-                        model: 'gemini-3-pro-preview'
-                    }
-                });
-            } catch (e) {
-                this._panel.webview.postMessage({ type: 'analysisError', error: String(e) });
             }
+
+            const result = await GeminiClient.chat(text, context);
+
+            // Check if this is just a casual chat (no code fixes proposed)
+            const isCasual = (!result.suggestions || result.suggestions.length === 0) &&
+                (!result.detectedIssues || result.detectedIssues.length === 0);
+
+            this._panel.webview.postMessage({
+                type: 'showAnalysis',
+                data: result,
+                metadata: {
+                    source: isCasual ? 'chat' : 'general-chat',
+                    filePath: context.filePath ? path.basename(context.filePath) : "General Chat",
+                    fullPath: context.filePath, // Preserve full path for target resolution
+                    hardware: context.hardwareContext ? "Detected" : "None",
+                    model: 'gemini-3-pro-preview'
+                }
+            });
+        } catch (e) {
+            this._panel.webview.postMessage({ type: 'analysisError', error: String(e) });
         }
     }
+
 
     public async analyzeImage(base64Image: string) {
         try {
@@ -1065,11 +1232,11 @@ export class AriaPanel {
                     if (pioContext && pioContext.board) {
                         const pioBoard = pioContext.board.toLowerCase().replace(/_/g, ' ');
                         const visionBoards = result.detectedBoards.map(b => b.toLowerCase());
-                        
+
                         // Simple fuzzy check: Does any vision board string contain parts of pio board or vice versa?
                         // e.g. "teensy41" vs "teensy 4.1"
-                        const match = visionBoards.some(vb => 
-                            vb.includes(pioBoard) || pioBoard.includes(vb) || 
+                        const match = visionBoards.some(vb =>
+                            vb.includes(pioBoard) || pioBoard.includes(vb) ||
                             (vb.includes('arduino') && pioBoard.includes('uno')) // common alias
                         );
 
@@ -1084,9 +1251,9 @@ export class AriaPanel {
             Logger.log(`[A.R.I.A] Vision confidence: ${result.confidence}`);
             Logger.log(`[A.R.I.A] Vision used as advisory context only`);
 
-            this._panel.webview.postMessage({ 
-                type: 'visionResult', 
-                data: { ...result, mismatchWarning } 
+            this._panel.webview.postMessage({
+                type: 'visionResult',
+                data: { ...result, mismatchWarning }
             });
 
         } catch (e) {

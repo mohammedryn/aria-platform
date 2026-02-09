@@ -7,7 +7,7 @@ import { validateHardware } from './validateHardware';
 import { captureImage } from './captureImage';
 import { captureVideo } from './captureVideo';
 import { setApiKey } from './setApiKey';
-import { buildAndFlash } from './buildAndFlash';
+import { buildAndFlash, runBuild, runFlash } from './buildAndFlash';
 import { openSerialMonitorCommand } from './openSerialMonitor';
 import { analyzeSerialLogsCommand } from './analyzeSerialLogs';
 import { analyzeTerminalCommand } from './analyzeTerminal';
@@ -23,6 +23,8 @@ export function registerCommands(context: vscode.ExtensionContext) {
         { id: 'aria.captureVideo', handler: captureVideo },
         { id: 'aria.setApiKey', handler: setApiKey },
         { id: 'aria.buildAndFlash', handler: buildAndFlash },
+        { id: 'aria.buildFirmware', handler: runBuild },
+        { id: 'aria.flashFirmware', handler: runFlash },
         { id: 'aria.openSerialMonitor', handler: openSerialMonitorCommand },
         { id: 'aria.analyzeSerialLogs', handler: analyzeSerialLogsCommand },
         { id: 'aria.analyzeTerminal', handler: analyzeTerminalCommand }
