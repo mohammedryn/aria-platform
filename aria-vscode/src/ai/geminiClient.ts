@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { Logger } from '../utils/logger';
 import { AnalysisInput, AnalysisOutput, SerialAnalysisResult } from './types';
+import { AIPatchResponse } from './protocols/patchProtocol';
 
 export class GeminiClient {
     private static readonly BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -32,6 +34,109 @@ export class GeminiClient {
             language: 'cpp',
             taskDescription: `FIX COMPILATION ERROR:\n${errorLog}\n\nSTRICT INSTRUCTION: Return a UNIFIED DIFF that fixes the error. DO NOT rewrite the entire file.`
         }, true);
+    }
+
+    public static async analyzeCodeJson(input: AnalysisInput): Promise<AIPatchResponse> {
+        const config = vscode.workspace.getConfiguration('aria');
+        let apiKey = config.get<string>('apiKey') || process.env.GEMINI_API_KEY;
+        const preferredModel = config.get<string>('apiModel') || "gemini-3-flash-preview";
+
+        if (!apiKey) {
+            throw new Error("Gemini API Key missing.");
+        }
+        apiKey = apiKey.trim();
+
+        const contextSection = input.context ? `CONTEXT:\n${input.context}\n\n` : "";
+        let visionSection = "";
+        if (input.visionContext) {
+            visionSection = `VISION ANALYSIS (Advisory Only):\n` +
+                `- Detected Boards: ${input.visionContext.boards.join(', ')}\n` +
+                `- Detected Components: ${input.visionContext.components.join(', ')}\n` +
+                `- Confidence: ${input.visionContext.confidence}\n\n`;
+        }
+
+        const taskDescription = input.taskDescription || "Analyze this code for bugs and improvements.";
+        
+        // Calculate hash to ensure patch validity (Normalize line endings to \n)
+        const normalizedCode = input.code.replace(/\r\n/g, '\n');
+        const fileHash = crypto.createHash('sha256').update(normalizedCode).digest('hex');
+
+        const systemInstruction = `You are A.R.I.A, a hardware-aware code analysis engine.
+You respond ONLY in RAW JSON format.
+NO Markdown. NO Code Fences. NO Explanations outside JSON.
+
+Response Schema (TypeScript Interface):
+{
+  file_hash: string; // SHA256 of the input file content (MUST match the hash provided in prompt)
+  summary: string; // Short summary of changes
+  edits: Array<{
+    file_path: string; // Relative path
+    operation: 'replace' | 'insert_after' | 'delete' | 'create';
+    start_line: number; // 1-based index
+    end_line?: number; // 1-based index (required for replace/delete)
+    content?: string; // Content to insert/replace
+    explanation: string; // Reasoning
+  }>
+}
+
+Rules:
+- 'replace': Replaces lines from start_line to end_line (inclusive) with content.
+- 'insert_after': Inserts content after start_line.
+- 'delete': Deletes lines from start_line to end_line (inclusive).
+- 'create': Creates a new file.
+- Do NOT output markdown formatting like \`\`\`json. Return raw JSON only.
+`;
+
+        const prompt = {
+            system_instruction: {
+                parts: { text: systemInstruction }
+            },
+            contents: {
+                parts: {
+                    text: `Analyze this ${input.language} content from ${input.filePath}:\n${contextSection}${visionSection}\nFILE CONTENT (SHA256: ${fileHash}):\n${input.code}\n\n` +
+                        `${taskDescription}\n` +
+                        `\nReturn valid JSON matching the schema. Ensure file_hash is "${fileHash}".`
+                }
+            },
+            generationConfig: {
+                responseMimeType: "application/json"
+            }
+        };
+
+        const modelsToTry = [preferredModel, ...this.FALLBACK_MODELS.filter(m => m !== preferredModel)];
+        let lastError: Error | null = null;
+
+        for (const model of modelsToTry) {
+            try {
+                Logger.log(`[A.R.I.A] Analyzing JSON with Model: ${model}...`);
+                const response = await this.callGemini(apiKey, model, prompt);
+                
+                // Parse Response
+                if (!response?.candidates?.[0]?.content?.parts?.length) {
+                    throw new Error("Invalid Gemini response structure");
+                }
+                const text = response?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!text) throw new Error("Empty response");
+
+                const json = JSON.parse(text.trim()) as AIPatchResponse;
+
+                if (!json.file_hash) {
+                    throw new Error("Patch missing required file_hash");
+                }
+
+                if (json.file_hash !== fileHash) {
+                    throw new Error(`Hash mismatch: AI returned ${json.file_hash}, expected ${fileHash}. File may have been hallucinated.`);
+                }
+
+                return json;
+
+            } catch (error) {
+                lastError = error instanceof Error ? error : new Error(String(error));
+                Logger.log(`[A.R.I.A] JSON Analysis failed with ${model}: ${lastError.message}`);
+            }
+        }
+
+        throw lastError || new Error("All models failed");
     }
 
     private static async _internalAnalyze(input: AnalysisInput, isBuildFix: boolean): Promise<AnalysisOutput> {
@@ -525,7 +630,11 @@ export class GeminiClient {
                 ]
             }],
             generationConfig: {
-                temperature: 0.4
+                responseMimeType: "application/json",
+                temperature: 0.2,
+                topP: 0.8,
+                topK: 40,
+                thinkingConfig: { include_thoughts: false }
             }
         };
 
@@ -1171,8 +1280,12 @@ export class GeminiClient {
             // Note: We are using default "High" thinking level for Pro/Flash.
             // Explicitly enabling thinking to ensure deep reasoning
             // ONLY if not explicitly disabled or set
-            if (!finalPayload.generationConfig.thinkingConfig) {
-                finalPayload.generationConfig.thinkingConfig = { include_thoughts: true };
+            if (finalPayload.generationConfig?.responseMimeType === "application/json") {
+                finalPayload.generationConfig.thinkingConfig = { include_thoughts: false };
+            } else {
+                if (!finalPayload.generationConfig.thinkingConfig) {
+                    finalPayload.generationConfig.thinkingConfig = { include_thoughts: true };
+                }
             }
 
             // Increase output tokens for Thinking models to prevent JSON truncation
