@@ -677,11 +677,17 @@
                 });
 
                 const deleteBtn = item.querySelector('.history-delete');
+                // Ensure button is above everything
+                deleteBtn.style.zIndex = '100';
                 deleteBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
                     e.stopPropagation();
-                    if (confirm('Delete this chat?')) {
-                        vscode.postMessage({ command: 'deleteChat', sessionId: session.id });
-                    }
+                    e.stopImmediatePropagation();
+                    console.log('Delete clicked for', session.id);
+                    // Direct send, confirm removed for testing/robustness
+                    vscode.postMessage({ command: 'deleteChat', sessionId: session.id });
+                    // Visual feedback
+                    item.style.opacity = '0.5';
                 });
 
                 historyList.appendChild(item);
@@ -689,10 +695,15 @@
         }
 
         function loadChatSession(session, isInit = false) {
-            // Protection: If initializing and we already have restored content (more than just the welcome message), skip backend load
-            if (isInit && stream.children.length > 2) {
-                console.log('Skipping backend init load in favor of local state');
-                return;
+            // Protection: If initializing
+            if (isInit && stream.children.length > 0) {
+                const first = stream.children[0];
+                const isDefault = first.textContent.includes('Ready for commands');
+                // If we have content that is NOT the default welcome message, preserve it.
+                if (!isDefault || stream.children.length > 1) {
+                    console.log('Skipping backend init load in favor of local state');
+                    return;
+                }
             }
             stream.innerHTML = '';
             // Reset state
@@ -715,6 +726,26 @@
                             updateVisionUI(m.data);
                         } else if (m.type === 'addResult') {
                             addEntry(m.text, 'result');
+                        } else if (m.type === 'showImage') {
+                            // Re-use the existing showImage logic (which usually comes from 'message' event directly)
+                            // We need to call showImage(m.image, m.isSvg, m.prompt)
+                            showImage(m.image, m.isSvg, m.prompt);
+                            // Scroll after image render
+                            setTimeout(() => stream.scrollTop = stream.scrollHeight, 100);
+                        } else if (m.type === 'simulationReady') {
+                            addEntry(`<div style="padding: 10px; background: #2d2d2d; border: 1px solid #444; margin-top: 5px;">
+                                <div style="color: #4caf50; font-weight: bold; margin-bottom: 5px;">✓ Simulation Ready</div>
+                                <div style="font-size: 0.9em; color: #ccc;">Generated Wokwi project in ${m.workspaceRoot}</div>
+                            </div>`, 'result');
+                        } else if (m.type === 'successMessage') {
+                            addEntry(`<div style="padding: 12px; background: #e6e6e6; border-left: 4px solid #55ff55; color: #333; display: flex; align-items: center; gap: 10px;">
+                                <span style="font-size: 1.2em;">${m.text}</span>
+                            </div>`, 'result');
+                        } else if (m.type === 'analysisError') {
+                            addEntry(`<span style="color:#ff5555">Analysis Failed: ${m.error}</span>`, 'result');
+                        } else if (msg.content) {
+                            // Fallback if metadata type not handled but content exists
+                            addEntry(msg.content, 'result');
                         }
                     } else if (msg.content) {
                         addEntry(msg.content, 'result');
@@ -982,7 +1013,7 @@
                 <div class="analysis-section">
                     <details>
                         <summary style="cursor: pointer; font-weight: bold; color: #555; display: flex; align-items: center; gap: 5px;">
-                             <span class="status-dot"></span> 🧠 ${metadata.model || 'Gemini'} Thinking Process
+                             <span class="status-dot"></span> 🧠 Thinking Process
                         </summary>
                         <div style="margin-top: 10px; padding: 10px; background: #e0e0e0; border-left: 2px solid #555; border-radius: 0 4px 4px 0; font-family: 'Press Start 2P', cursive; white-space: pre-wrap; font-size: 0.9em; max-height: 300px; overflow-y: auto; color: #333;">
                             ${analysis.thoughtProcess.replace(/</g, '&lt;').replace(/>/g, '&gt;')}

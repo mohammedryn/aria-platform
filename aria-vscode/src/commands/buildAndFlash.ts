@@ -51,28 +51,67 @@ export async function runBuild() {
         vscode.window.showInformationMessage("A.R.I.A: Firmware Build Success");
     } else {
         vscode.window.showErrorMessage("A.R.I.A: Firmware Build Failed. Analyzing Error...");
-        
+
         // Auto-Analyze Terminal Error
-        AriaPanel.postMessage({ type: 'analysisLoading' });
-        
+        AriaPanel.postMessage({ type: 'analysisLoading', message: 'Analyzing Build Error (Smart Repair)...' });
+
         // Scan for context
         const hwInfo = await HardwareContext.scan();
-        const hardwareContext = hwInfo.projects.map(p => 
+        const hardwareContext = hwInfo.projects.map(p =>
             `Board: ${p.board}, Framework: ${p.framework}, Libs: ${p.libraries.join(', ')}`
         ).join('; ');
 
-        // Call AI
+        // Try to identify the failing file from the log
+        const errorLog = result.output;
+        let failingFileContent = "";
+        let failingFilePath = "terminal_output.log";
+
+        // Regex to find "src/main.cpp:10:5: error:" or similar
+        const fileMatch = errorLog.match(/src[\/\\][a-zA-Z0-9_\-]+\.(cpp|c|h|hpp|ino)/i);
+        if (fileMatch) {
+            const relPath = fileMatch[0];
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+            if (workspaceRoot) {
+                const absPath = require('path').join(workspaceRoot, relPath);
+                try {
+                    const doc = await vscode.workspace.openTextDocument(absPath);
+                    failingFileContent = doc.getText();
+                    failingFilePath = relPath;
+                    Logger.log(`[A.R.I.A] Identified failing file: ${absPath}`);
+                } catch (e) {
+                    Logger.log(`[A.R.I.A] Could not read failing file: ${e}`);
+                }
+            }
+        }
+
+        // Fallback to active editor if no file found in log, but user is likely looking at the code
+        if (!failingFileContent) {
+            const editor = getLastActiveEditor();
+            if (editor) {
+                failingFileContent = editor.document.getText();
+                failingFilePath = vscode.workspace.asRelativePath(editor.document.uri);
+            }
+        }
+
+        // Call AI with Specialized Fix Method
         try {
-            const analysis = await GeminiClient.analyzeCode({
-                code: result.output,
-                filePath: "terminal_output.log",
-                language: "plaintext",
-                hardwareContext: hardwareContext,
-                source: 'terminal'
-            });
+            let analysis;
+            if (failingFileContent) {
+                analysis = await GeminiClient.fixBuildError(errorLog, failingFileContent, failingFilePath);
+            } else {
+                // Fallback to generic analysis if no code context
+                analysis = await GeminiClient.analyzeCode({
+                    code: result.output,
+                    filePath: "terminal_output.log",
+                    language: "plaintext",
+                    hardwareContext: hardwareContext,
+                    source: 'terminal'
+                });
+            }
+
             AriaPanel.currentPanel?.showAnalysisResult(analysis, {
-                filePath: "terminal_output.log",
-                source: 'terminal',
+                filePath: failingFilePath,
+                source: 'build-error',
                 hardware: hardwareContext
             });
         } catch (e) {
@@ -80,7 +119,7 @@ export async function runBuild() {
             AriaPanel.postMessage({ type: 'analysisError', error: String(e) });
         }
     }
-    
+
     // Update Panel UI
     AriaPanel.postMessage({ type: 'buildStatus', status: result.success ? 'success' : 'fail' });
 }
@@ -100,9 +139,9 @@ export async function runFlash() {
         const hwInfo = await HardwareContext.scan();
         const board = hwInfo.projects.length > 0 ? hwInfo.projects[0].board : "unknown";
         const visionContext = AriaPanel.currentPanel?.visionResult;
-        
+
         const valResult = HardwareValidator.validate(code, board, visionContext);
-        
+
         if (valResult.status === 'fail') {
             vscode.window.showErrorMessage("A.R.I.A: Safety Lock: Flash blocked due to Hardware Validation FAIL.");
             Logger.log("[A.R.I.A] Flash aborted: Hardware Validation FAIL");
@@ -111,18 +150,18 @@ export async function runFlash() {
 
         // B. Board Mismatch (Vision)
         if (visionContext && visionContext.detectedBoards.length > 0) {
-             const visionBoard = visionContext.detectedBoards[0].toLowerCase();
-             const configBoard = board.toLowerCase();
-             if (!configBoard.includes(visionBoard) && !visionBoard.includes(configBoard)) {
-                 const proceed = await vscode.window.showWarningMessage(
-                     `Board Mismatch: Configured '${board}' but Vision sees '${visionBoard}'. Proceed?`,
-                     "Abort", "Proceed Riskily"
-                 );
-                 if (proceed !== "Proceed Riskily") {
-                     Logger.log("[A.R.I.A] Flash aborted: Board Mismatch");
-                     return;
-                 }
-             }
+            const visionBoard = visionContext.detectedBoards[0].toLowerCase();
+            const configBoard = board.toLowerCase();
+            if (!configBoard.includes(visionBoard) && !visionBoard.includes(configBoard)) {
+                const proceed = await vscode.window.showWarningMessage(
+                    `Board Mismatch: Configured '${board}' but Vision sees '${visionBoard}'. Proceed?`,
+                    "Abort", "Proceed Riskily"
+                );
+                if (proceed !== "Proceed Riskily") {
+                    Logger.log("[A.R.I.A] Flash aborted: Board Mismatch");
+                    return;
+                }
+            }
         }
     }
 
@@ -157,7 +196,7 @@ export async function runFlash() {
 
     // 4. Flash
     const success = await PlatformIOManager.flashFirmware(workspaceRoot, selectedPort);
-    
+
     if (success) {
         vscode.window.showInformationMessage("A.R.I.A: Upload Complete");
     } else {

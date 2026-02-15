@@ -6,18 +6,35 @@ import { AnalysisInput, AnalysisOutput, SerialAnalysisResult } from './types';
 export class GeminiClient {
     private static readonly BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
     private static readonly UPLOAD_URL = "https://generativelanguage.googleapis.com/upload/v1beta/files";
-    private static readonly TIMEOUT_MS = 90000; // Increased to 90s for Gemini 3 Thinking
+    private static readonly TIMEOUT_MS = 45000; // Reduced to 45s for faster feedback
     private static readonly FALLBACK_MODELS = [
-        "gemini-3-pro-preview",
-        "gemini-3-flash-preview",
+        "gemini-3-flash-preview", // Try flash again or similar
+        "gemini-2.0-flash-lite-001", // Faster fallback
         "gemini-2.5-flash",
-        "gemini-2.0-flash-lite-001",
+        "gemini-3-pro-preview", // Last resort (slowest)
         "gemini-2.0-flash-001",
         "gemini-2.0-flash",
         "gemini-flash-latest"
     ];
 
     public static async analyzeCode(input: AnalysisInput): Promise<AnalysisOutput> {
+        // ... (existing implementation) ...
+        // We keep analyzeCode for general use but modify prompt structure if needed
+        // For now, let's just add the new method and use that instead.
+        return this._internalAnalyze(input, false);
+    }
+
+    public static async fixBuildError(errorLog: string, codeContext: string, filePath: string): Promise<AnalysisOutput> {
+        return this._internalAnalyze({
+            code: codeContext,
+            filePath: filePath,
+            source: 'build_error',
+            language: 'cpp',
+            taskDescription: `FIX COMPILATION ERROR:\n${errorLog}\n\nSTRICT INSTRUCTION: Return a UNIFIED DIFF that fixes the error. DO NOT rewrite the entire file.`
+        }, true);
+    }
+
+    private static async _internalAnalyze(input: AnalysisInput, isBuildFix: boolean): Promise<AnalysisOutput> {
         const config = vscode.workspace.getConfiguration('aria');
         let apiKey = config.get<string>('apiKey') || process.env.GEMINI_API_KEY;
         const preferredModel = config.get<string>('apiModel') || "gemini-3-flash-preview";
@@ -39,7 +56,7 @@ export class GeminiClient {
         if (input.visionContext) {
             visionSection = `VISION ANALYSIS (Advisory Only):\n` +
                 `- Detected Boards: ${input.visionContext.boards.join(', ')}\n` +
-                `- Detected Components: ${input.visionContext.components.join(', ')}\n` +
+                `- Detected Components: ${input.visionContext.components.join(', ')}\\n` +
                 `- Confidence: ${input.visionContext.confidence}\n\n`;
         }
 
@@ -53,23 +70,34 @@ export class GeminiClient {
         const systemInstruction = "You are A.R.I.A, a hardware-aware code analysis engine. " +
             "You understand embedded systems (PlatformIO, Arduino, ESP32, Teensy). " +
             "Use Markdown for formatting. \n\n" +
+            "CRITICAL: Always cross-reference detected boards/components with the code.\n" +
             "IMPORTANT OUTPUT FORMAT:\n" +
             "1. Start with a section header '# Thinking Process' and explain your analysis.\n" +
             "2. Follow with a section header '# Final Summary' containing the direct answer to the user.\n" +
+            "3. If providing code fixes, you MUST use the headers '--- <filename>' and '+++ <filename>'.\n" +
             "This structure is REQUIRED.";
 
-        const outputFormat = isFullFileAnalysis
-            ? `\nSpecific Task: Provide a COMPLETE, CORRECTED version of the user's file.\n` +
-            `1. Under '# Thinking Process', analyze the issues.\n` +
-            `2. Under '# Final Summary', summarize changes.\n` +
-            `3. Add a section '# Corrected Code' containing the COMPLETE, FULLY CORRECTED file content inside a code block.\n` +
-            `   - DO NOT use diffs for this mode.\n` +
-            `   - Return the ENTIRE file from start to finish.\n`
-            : `\nSpecific Task: Analyze code and suggest fixes.\n` +
-            `1. Under '# Thinking Process', analyze the code.\n` +
-            `2. Under '# Final Summary', summarize the issue and fix.\n` +
-            `3. Add a section '# Recommendations' for bullet points.\n` +
-            `4. Add a section '# Suggestions' with ONE unified diff that fixes all issues.\n`;
+        const outputFormat = isBuildFix
+            ? `\nTASK: Fix the compilation error defined below.\n` +
+            `1. Under '# Thinking Process', analyze the error log and the code.\n` +
+            `2. Under '# Final Summary', explain the fix briefly.\n` +
+            `3. Add a section '# Suggestions' with ONE UNIFIED DIFF that fixes the error.\n` +
+            `   - MUST start with headers: --- filename, +++ filename\n` +
+            `   - Use standard diff format (@@ -L,C +L,C @@).\n` +
+            `   - Context lines (space), Added (+), Deleted (-).\n` +
+            `   - DO NOT rewrite the whole file. Only change the lines needed.\n`
+            : (isFullFileAnalysis
+                ? `\nSpecific Task: Provide a COMPLETE, CORRECTED version of the user's file.\n` +
+                `1. Under '# Thinking Process', analyze the issues.\n` +
+                `2. Under '# Final Summary', summarize changes.\n` +
+                `3. Add a section '# Corrected Code' containing the COMPLETE file.\n` +
+                `   - YOU MUST start the code block with: --- filename, +++ filename\n` +
+                `   - Return the ENTIRE file from start to finish.\n`
+                : `\nSpecific Task: Analyze code and suggest fixes.\n` +
+                `1. Under '# Thinking Process', analyze the code.\n` +
+                `2. Under '# Final Summary', summarize the issue and fix.\n` +
+                `3. Add a section '# Recommendations' for bullet points.\n` +
+                `4. Add a section '# Suggestions' with ONE unified diff (with headers).\n`);
 
         const prompt = {
             system_instruction: {
@@ -81,7 +109,9 @@ export class GeminiClient {
                         `${taskDescription}\n` +
                         outputFormat +
                         `\nEXAMPLE OUTPUT FORMAT:\n` +
-                        `# Thinking Process\n[Analysis...]\n\n# Final Summary\n[Summary...]\n\n# Corrected Code\n\`\`\`${input.language}\n[FULL CODE HERE]\n\`\`\``
+                        `# Thinking Process\n[Analysis...]\n\n# Final Summary\n[Summary...]\n\n` +
+                        (isBuildFix ? `# Suggestions\n\`\`\`diff\n--- file.cpp\n+++ file.cpp\n@@ -10,1 +10,1 @@\n-old_line;\n+new_line;\n\`\`\``
+                            : `# Corrected Code\n\`\`\`${input.language}\n[FULL CODE HERE]\n\`\`\``)
                 }
             }
         };
@@ -136,9 +166,11 @@ export class GeminiClient {
                 parts: {
                     text: "You are A.R.I.A, a hardware-aware code analysis engine. Analyze the entire project context. Find cross-file issues, logical errors, and hardware mismatches. " +
                         "Use Markdown for formatting. \n\n" +
+                        "CRITICAL: Always cross-reference detected boards/components with the code.\n" +
                         "IMPORTANT OUTPUT FORMAT:\n" +
                         "1. Start with a section header '# Thinking Process' and explain your analysis.\n" +
                         "2. Follow with a section header '# Final Summary' containing the direct answer to the user.\n" +
+                        "3. If providing code fixes, you MUST use the headers '--- <filename>' and '+++ <filename>'.\n" +
                         "This structure is REQUIRED."
                 }
             },
@@ -264,9 +296,11 @@ export class GeminiClient {
                 parts: {
                     text: "You are A.R.I.A, a hardware-aware code analysis engine. " +
                         "Use Markdown for formatting. \n\n" +
+                        "CRITICAL: Always cross-reference detected boards/components with the code.\n" +
                         "IMPORTANT OUTPUT FORMAT:\n" +
                         "1. Start with a section header '# Thinking Process' and explain your analysis.\n" +
                         "2. Follow with a section header '# Final Summary' containing the direct answer to the user.\n" +
+                        "3. If providing code fixes, you MUST use the headers '--- <filename>' and '+++ <filename>'.\n" +
                         "This structure is REQUIRED."
                 }
             },
@@ -360,6 +394,94 @@ export class GeminiClient {
             await new Promise(r => setTimeout(r, 2000));
         }
         throw new Error("File processing timed out.");
+    }
+
+    public static async generateVideoScript(prompt: string): Promise<string | null> {
+        const config = vscode.workspace.getConfiguration('aria');
+        let apiKey = config.get<string>('apiKey') || process.env.GEMINI_API_KEY;
+        const preferredModel = "gemini-3-pro-preview";
+
+        if (!apiKey) {
+            throw new Error("Gemini API Key missing.");
+        }
+        apiKey = apiKey.trim();
+
+        // STRICT SYSTEM INSTRUCTION (No Roleplay)
+        const systemInstruction =
+            "You are a code generation backend. You receive a query and output ONLY the raw HTML/SVG file content.\n" +
+            "DO NOT Output 'Here is the code'.\n" +
+            "DO NOT Output 'Thinking Process'.\n" +
+            "DO NOT Output Markdown blocks.\n" +
+            "Output Format: Raw string starting with '<!DOCTYPE html>' or '<svg'.\n" +
+            "The content must be a Self-Contained HTML5 Animation demonstrating: " + prompt;
+
+        const payload = {
+            system_instruction: {
+                parts: { text: systemInstruction }
+            },
+            contents: [{
+                parts: [{ text: "OUTPUT_FILE_CONTENT_ONLY: YES" }] // Dummy user message to just trigger the system prompt instruction
+            }],
+            generationConfig: {
+                temperature: 0.0, // Absolute zero
+                topP: 0.1,
+                topK: 10,
+                // CRITICAL: Disable "Thinking" to prevent conversational bloat
+                thinkingConfig: { include_thoughts: false }
+            }
+        };
+
+        try {
+            Logger.log(`[A.R.I.A] Generating Video Script with Model: ${preferredModel}...`);
+            const response = await this.callGemini(apiKey, preferredModel, payload);
+
+            // Extract text
+            const text = response?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+            // FULL RAW LOGGING FOR USER DEBUGGING
+            if (text) {
+                Logger.log(`[A.R.I.A] --- RAW MODEL OUTPUT START ---`);
+                Logger.log(text);
+                Logger.log(`[A.R.I.A] --- RAW MODEL OUTPUT END ---`);
+            } else {
+                Logger.log("[A.R.I.A] Video Gen: No text in response candidates.");
+                return null;
+            }
+
+            // STRATEGY: Robust Regex Search (HTML or SVG)
+            // Finds the first <!DOCTYPE html> ... </html> OR <svg ... </svg>
+            const codeRegex = /(?:<!DOCTYPE\s+html>|<html[\s>])[\s\S]*?<\/html>|<svg[\s\S]*?<\/svg>/i;
+            const match = text.match(codeRegex);
+
+            if (match) {
+                Logger.log("[A.R.I.A] Video Gen: Found Code block via Regex. Extracting...");
+                return match[0].trim();
+            }
+
+            // Fallback: Markdown Code Block
+            const codeBlockRegex = /```(?:html|xml|svg)?\s*([\s\S]*?)\s*```/i;
+            const codeMatch = codeBlockRegex.exec(text);
+            if (codeMatch && codeMatch[1]) {
+                const inner = codeMatch[1].trim();
+                // Simple heuristic check
+                if (inner.startsWith('<') || inner.includes('xmlns')) {
+                    Logger.log("[A.R.I.A] Video Gen: Found Markdown code block. Extracting...");
+                    return inner;
+                }
+            }
+
+            // Last Resort: Return text if it looks like it starts with a tag
+            if (text.trim().startsWith('<')) {
+                return text.trim();
+            }
+
+            Logger.log(`[A.R.I.A] Could not extract structured Code. See raw output above.`);
+            return null;
+
+        } catch (error) {
+            Logger.log(`[A.R.I.A] Video Gen failed: ${error}`);
+            throw error;
+        }
     }
 
     public static async analyzeVideo(fileUri: string, mimeType: string, userPrompt: string): Promise<AnalysisOutput> {
@@ -573,19 +695,11 @@ export class GeminiClient {
             "2. **Code Help:** If the user asks about bugs, errors, or how to do something, use the provided context to give expert technical advice.\n" +
             "3. **Debugging:** If the user provides error codes or register dumps (e.g., HFSR, CFSR), DECODE them bit-by-bit and explain faults in detail.\n\n" +
             "Use Markdown for formatting. \n\n" +
+            "CRITICAL: Always cross-reference detected boards/components with the code.\n" +
             "IMPORTANT OUTPUT FORMAT:\n" +
             "1. Start with a section header '# Thinking Process' and explain your analysis.\n" +
             "2. Follow with a section header '# Final Summary' containing the direct answer.\n" +
-            "3. If (and ONLY if) code changes are explicitly needed or requested, provide a '# Suggestions' section.\n" +
-            "   - **Option A (Small Changes & Config):** Use a Unified Diff block (```diff). Start with '--- <filename>', '+++ <filename>', and use '@@ ... @@' hunks. **You CAN and SHOULD edit 'platformio.ini' using this method if the user asks to change boards.**\n" +
-            "   - **Option B (Full Rewrite):** If changing more than 50% of the file, rewriting completely, or **switching hardware platforms** (e.g. Teensy to ESP32), provide the **FULL NEW CODE** in a standard code block. **To ensure the system updates the correct file, you MUST start the code block with standard diff headers:**\n" +
-            "     ```\n" +
-            "     --- <filename>\n" +
-            "     +++ <filename>\n" +
-            "     <full file content here...>\n" +
-            "     ```\n" +
-            "     DO NOT use '@@ ... @@' hunks for full rewrites. Just the headers and the full code.\n" +
-            "   - **IMPORTANT:** Do not mix prose/text inside the code blocks. Only code or diffs.\n" +
+            "3. If providing code fixes, you MUST use the headers '--- <filename>' and '+++ <filename>'.\n" +
             "This structure is REQUIRED.";
 
         let contextText = "";
@@ -1044,16 +1158,22 @@ export class GeminiClient {
             if (!finalPayload.generationConfig) {
                 finalPayload.generationConfig = {};
             }
-            // LOWER TEMPERATURE: 1.0 is too creative for strict diffs. 
-            // Lowering to 0.4 to ensure it follows the "Strict Unified Diff" format.
-            // Applies to ALL Gemini 3 variants: Pro, Flash, and Vision/Image analysis.
-            finalPayload.generationConfig.temperature = 0.4;
+
+            // STRICT MODE: Enforce 0.4 for code diffs/thinking, BUT respect explicit overrides
+            // (e.g. Video Generation uses 0.1, Creative Writing might use 0.9)
+            if (finalPayload.generationConfig.temperature === undefined) {
+                finalPayload.generationConfig.temperature = 0.4;
+                Logger.log(`[A.R.I.A] Enforcing Strict Mode (Temp=0.4) for Gemini 3 model: ${model}`);
+            } else {
+                Logger.log(`[A.R.I.A] Using Custom Temperature (${finalPayload.generationConfig.temperature}) for Gemini 3 model: ${model}`);
+            }
 
             // Note: We are using default "High" thinking level for Pro/Flash.
             // Explicitly enabling thinking to ensure deep reasoning
-            finalPayload.generationConfig.thinkingConfig = { include_thoughts: true };
-
-            Logger.log(`[A.R.I.A] Enforcing Strict Mode (Temp=0.4) for Gemini 3 model: ${model}`);
+            // ONLY if not explicitly disabled or set
+            if (!finalPayload.generationConfig.thinkingConfig) {
+                finalPayload.generationConfig.thinkingConfig = { include_thoughts: true };
+            }
 
             // Increase output tokens for Thinking models to prevent JSON truncation
             finalPayload.generationConfig.maxOutputTokens = 65536;

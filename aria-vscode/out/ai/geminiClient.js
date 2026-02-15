@@ -6,6 +6,21 @@ const fs = require("fs");
 const logger_1 = require("../utils/logger");
 class GeminiClient {
     static async analyzeCode(input) {
+        // ... (existing implementation) ...
+        // We keep analyzeCode for general use but modify prompt structure if needed
+        // For now, let's just add the new method and use that instead.
+        return this._internalAnalyze(input, false);
+    }
+    static async fixBuildError(errorLog, codeContext, filePath) {
+        return this._internalAnalyze({
+            code: codeContext,
+            filePath: filePath,
+            source: 'build_error',
+            language: 'cpp',
+            taskDescription: `FIX COMPILATION ERROR:\n${errorLog}\n\nSTRICT INSTRUCTION: Return a UNIFIED DIFF that fixes the error. DO NOT rewrite the entire file.`
+        }, true);
+    }
+    static async _internalAnalyze(input, isBuildFix) {
         const config = vscode.workspace.getConfiguration('aria');
         let apiKey = config.get('apiKey') || process.env.GEMINI_API_KEY;
         const preferredModel = config.get('apiModel') || "gemini-3-flash-preview";
@@ -23,7 +38,7 @@ class GeminiClient {
         if (input.visionContext) {
             visionSection = `VISION ANALYSIS (Advisory Only):\n` +
                 `- Detected Boards: ${input.visionContext.boards.join(', ')}\n` +
-                `- Detected Components: ${input.visionContext.components.join(', ')}\n` +
+                `- Detected Components: ${input.visionContext.components.join(', ')}\\n` +
                 `- Confidence: ${input.visionContext.confidence}\n\n`;
         }
         const codeLabel = input.source === 'selection' ? "SELECTED CODE" : "FILE CONTENT";
@@ -37,18 +52,28 @@ class GeminiClient {
             "1. Start with a section header '# Thinking Process' and explain your analysis.\n" +
             "2. Follow with a section header '# Final Summary' containing the direct answer to the user.\n" +
             "This structure is REQUIRED.";
-        const outputFormat = isFullFileAnalysis
-            ? `\nSpecific Task: Provide a COMPLETE, CORRECTED version of the user's file.\n` +
-                `1. Under '# Thinking Process', analyze the issues.\n` +
-                `2. Under '# Final Summary', summarize changes.\n` +
-                `3. Add a section '# Corrected Code' containing the COMPLETE, FULLY CORRECTED file content inside a code block.\n` +
-                `   - DO NOT use diffs for this mode.\n` +
-                `   - Return the ENTIRE file from start to finish.\n`
-            : `\nSpecific Task: Analyze code and suggest fixes.\n` +
-                `1. Under '# Thinking Process', analyze the code.\n` +
-                `2. Under '# Final Summary', summarize the issue and fix.\n` +
-                `3. Add a section '# Recommendations' for bullet points.\n` +
-                `4. Add a section '# Suggestions' with ONE unified diff that fixes all issues.\n`;
+        const outputFormat = isBuildFix
+            ? `\nTASK: Fix the compilation error defined below.\n` +
+                `1. Under '# Thinking Process', analyze the error log and the code.\n` +
+                `2. Under '# Final Summary', explain the fix briefly.\n` +
+                `3. Add a section '# Suggestions' with ONE UNIFIED DIFF that fixes the error.\n` +
+                `   - Use standard diff format (--- original, +++ modified, @@ ... @@).\n` +
+                `   - context lines should start with space.\n` +
+                `   - added lines start with +.\n` +
+                `   - deleted lines start with -.\n` +
+                `   - DO NOT rewrite the whole file. Only change the lines needed.\n`
+            : (isFullFileAnalysis
+                ? `\nSpecific Task: Provide a COMPLETE, CORRECTED version of the user's file.\n` +
+                    `1. Under '# Thinking Process', analyze the issues.\n` +
+                    `2. Under '# Final Summary', summarize changes.\n` +
+                    `3. Add a section '# Corrected Code' containing the COMPLETE, FULLY CORRECTED file content inside a code block.\n` +
+                    `   - DO NOT use diffs for this mode.\n` +
+                    `   - Return the ENTIRE file from start to finish.\n`
+                : `\nSpecific Task: Analyze code and suggest fixes.\n` +
+                    `1. Under '# Thinking Process', analyze the code.\n` +
+                    `2. Under '# Final Summary', summarize the issue and fix.\n` +
+                    `3. Add a section '# Recommendations' for bullet points.\n` +
+                    `4. Add a section '# Suggestions' with ONE unified diff that fixes all issues.\n`);
         const prompt = {
             system_instruction: {
                 parts: { text: systemInstruction }
@@ -59,7 +84,9 @@ class GeminiClient {
                         `${taskDescription}\n` +
                         outputFormat +
                         `\nEXAMPLE OUTPUT FORMAT:\n` +
-                        `# Thinking Process\n[Analysis...]\n\n# Final Summary\n[Summary...]\n\n# Corrected Code\n\`\`\`${input.language}\n[FULL CODE HERE]\n\`\`\``
+                        `# Thinking Process\n[Analysis...]\n\n# Final Summary\n[Summary...]\n\n` +
+                        (isBuildFix ? `# Suggestions\n\`\`\`diff\n--- file.cpp\n+++ file.cpp\n@@ -10,1 +10,1 @@\n-old_line;\n+new_line;\n\`\`\``
+                            : `# Corrected Code\n\`\`\`${input.language}\n[FULL CODE HERE]\n\`\`\``)
                 }
             }
         };
@@ -314,6 +341,82 @@ class GeminiClient {
             await new Promise(r => setTimeout(r, 2000));
         }
         throw new Error("File processing timed out.");
+    }
+    static async generateVideoScript(prompt) {
+        const config = vscode.workspace.getConfiguration('aria');
+        let apiKey = config.get('apiKey') || process.env.GEMINI_API_KEY;
+        const preferredModel = "gemini-3-pro-preview";
+        if (!apiKey) {
+            throw new Error("Gemini API Key missing.");
+        }
+        apiKey = apiKey.trim();
+        // STRICT SYSTEM INSTRUCTION (No Roleplay)
+        const systemInstruction = "You are a code generation backend. You receive a query and output ONLY the raw HTML/SVG file content.\n" +
+            "DO NOT Output 'Here is the code'.\n" +
+            "DO NOT Output 'Thinking Process'.\n" +
+            "DO NOT Output Markdown blocks.\n" +
+            "Output Format: Raw string starting with '<!DOCTYPE html>' or '<svg'.\n" +
+            "The content must be a Self-Contained HTML5 Animation demonstrating: " + prompt;
+        const payload = {
+            system_instruction: {
+                parts: { text: systemInstruction }
+            },
+            contents: [{
+                    parts: [{ text: "OUTPUT_FILE_CONTENT_ONLY: YES" }] // Dummy user message to just trigger the system prompt instruction
+                }],
+            generationConfig: {
+                temperature: 0.0, // Absolute zero
+                topP: 0.1,
+                topK: 10,
+                // CRITICAL: Disable "Thinking" to prevent conversational bloat
+                thinkingConfig: { include_thoughts: false }
+            }
+        };
+        try {
+            logger_1.Logger.log(`[A.R.I.A] Generating Video Script with Model: ${preferredModel}...`);
+            const response = await this.callGemini(apiKey, preferredModel, payload);
+            // Extract text
+            const text = response?.candidates?.[0]?.content?.parts?.[0]?.text;
+            // FULL RAW LOGGING FOR USER DEBUGGING
+            if (text) {
+                logger_1.Logger.log(`[A.R.I.A] --- RAW MODEL OUTPUT START ---`);
+                logger_1.Logger.log(text);
+                logger_1.Logger.log(`[A.R.I.A] --- RAW MODEL OUTPUT END ---`);
+            }
+            else {
+                logger_1.Logger.log("[A.R.I.A] Video Gen: No text in response candidates.");
+                return null;
+            }
+            // STRATEGY: Robust Regex Search (HTML or SVG)
+            // Finds the first <!DOCTYPE html> ... </html> OR <svg ... </svg>
+            const codeRegex = /(?:<!DOCTYPE\s+html>|<html[\s>])[\s\S]*?<\/html>|<svg[\s\S]*?<\/svg>/i;
+            const match = text.match(codeRegex);
+            if (match) {
+                logger_1.Logger.log("[A.R.I.A] Video Gen: Found Code block via Regex. Extracting...");
+                return match[0].trim();
+            }
+            // Fallback: Markdown Code Block
+            const codeBlockRegex = /```(?:html|xml|svg)?\s*([\s\S]*?)\s*```/i;
+            const codeMatch = codeBlockRegex.exec(text);
+            if (codeMatch && codeMatch[1]) {
+                const inner = codeMatch[1].trim();
+                // Simple heuristic check
+                if (inner.startsWith('<') || inner.includes('xmlns')) {
+                    logger_1.Logger.log("[A.R.I.A] Video Gen: Found Markdown code block. Extracting...");
+                    return inner;
+                }
+            }
+            // Last Resort: Return text if it looks like it starts with a tag
+            if (text.trim().startsWith('<')) {
+                return text.trim();
+            }
+            logger_1.Logger.log(`[A.R.I.A] Could not extract structured Code. See raw output above.`);
+            return null;
+        }
+        catch (error) {
+            logger_1.Logger.log(`[A.R.I.A] Video Gen failed: ${error}`);
+            throw error;
+        }
     }
     static async analyzeVideo(fileUri, mimeType, userPrompt) {
         const config = vscode.workspace.getConfiguration('aria');
@@ -941,14 +1044,21 @@ class GeminiClient {
             if (!finalPayload.generationConfig) {
                 finalPayload.generationConfig = {};
             }
-            // LOWER TEMPERATURE: 1.0 is too creative for strict diffs. 
-            // Lowering to 0.4 to ensure it follows the "Strict Unified Diff" format.
-            // Applies to ALL Gemini 3 variants: Pro, Flash, and Vision/Image analysis.
-            finalPayload.generationConfig.temperature = 0.4;
+            // STRICT MODE: Enforce 0.4 for code diffs/thinking, BUT respect explicit overrides
+            // (e.g. Video Generation uses 0.1, Creative Writing might use 0.9)
+            if (finalPayload.generationConfig.temperature === undefined) {
+                finalPayload.generationConfig.temperature = 0.4;
+                logger_1.Logger.log(`[A.R.I.A] Enforcing Strict Mode (Temp=0.4) for Gemini 3 model: ${model}`);
+            }
+            else {
+                logger_1.Logger.log(`[A.R.I.A] Using Custom Temperature (${finalPayload.generationConfig.temperature}) for Gemini 3 model: ${model}`);
+            }
             // Note: We are using default "High" thinking level for Pro/Flash.
             // Explicitly enabling thinking to ensure deep reasoning
-            finalPayload.generationConfig.thinkingConfig = { include_thoughts: true };
-            logger_1.Logger.log(`[A.R.I.A] Enforcing Strict Mode (Temp=0.4) for Gemini 3 model: ${model}`);
+            // ONLY if not explicitly disabled or set
+            if (!finalPayload.generationConfig.thinkingConfig) {
+                finalPayload.generationConfig.thinkingConfig = { include_thoughts: true };
+            }
             // Increase output tokens for Thinking models to prevent JSON truncation
             finalPayload.generationConfig.maxOutputTokens = 65536;
             // Vision: Add media_resolution if image is present
@@ -1175,12 +1285,12 @@ class GeminiClient {
 exports.GeminiClient = GeminiClient;
 GeminiClient.BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 GeminiClient.UPLOAD_URL = "https://generativelanguage.googleapis.com/upload/v1beta/files";
-GeminiClient.TIMEOUT_MS = 90000; // Increased to 90s for Gemini 3 Thinking
+GeminiClient.TIMEOUT_MS = 45000; // Reduced to 45s for faster feedback
 GeminiClient.FALLBACK_MODELS = [
-    "gemini-3-pro-preview",
-    "gemini-3-flash-preview",
+    "gemini-3-flash-preview", // Try flash again or similar
+    "gemini-2.0-flash-lite-001", // Faster fallback
     "gemini-2.5-flash",
-    "gemini-2.0-flash-lite-001",
+    "gemini-3-pro-preview", // Last resort (slowest)
     "gemini-2.0-flash-001",
     "gemini-2.0-flash",
     "gemini-flash-latest"

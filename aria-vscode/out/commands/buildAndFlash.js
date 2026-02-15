@@ -52,22 +52,59 @@ async function runBuild() {
     else {
         vscode.window.showErrorMessage("A.R.I.A: Firmware Build Failed. Analyzing Error...");
         // Auto-Analyze Terminal Error
-        ariaPanel_1.AriaPanel.postMessage({ type: 'analysisLoading' });
+        ariaPanel_1.AriaPanel.postMessage({ type: 'analysisLoading', message: 'Analyzing Build Error (Smart Repair)...' });
         // Scan for context
         const hwInfo = await hardwareContext_1.HardwareContext.scan();
         const hardwareContext = hwInfo.projects.map(p => `Board: ${p.board}, Framework: ${p.framework}, Libs: ${p.libraries.join(', ')}`).join('; ');
-        // Call AI
+        // Try to identify the failing file from the log
+        const errorLog = result.output;
+        let failingFileContent = "";
+        let failingFilePath = "terminal_output.log";
+        // Regex to find "src/main.cpp:10:5: error:" or similar
+        const fileMatch = errorLog.match(/src[\/\\][a-zA-Z0-9_\-]+\.(cpp|c|h|hpp|ino)/i);
+        if (fileMatch) {
+            const relPath = fileMatch[0];
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+            if (workspaceRoot) {
+                const absPath = require('path').join(workspaceRoot, relPath);
+                try {
+                    const doc = await vscode.workspace.openTextDocument(absPath);
+                    failingFileContent = doc.getText();
+                    failingFilePath = relPath;
+                    logger_1.Logger.log(`[A.R.I.A] Identified failing file: ${absPath}`);
+                }
+                catch (e) {
+                    logger_1.Logger.log(`[A.R.I.A] Could not read failing file: ${e}`);
+                }
+            }
+        }
+        // Fallback to active editor if no file found in log, but user is likely looking at the code
+        if (!failingFileContent) {
+            const editor = (0, editorContext_1.getLastActiveEditor)();
+            if (editor) {
+                failingFileContent = editor.document.getText();
+                failingFilePath = vscode.workspace.asRelativePath(editor.document.uri);
+            }
+        }
+        // Call AI with Specialized Fix Method
         try {
-            const analysis = await geminiClient_1.GeminiClient.analyzeCode({
-                code: result.output,
-                filePath: "terminal_output.log",
-                language: "plaintext",
-                hardwareContext: hardwareContext,
-                source: 'terminal'
-            });
+            let analysis;
+            if (failingFileContent) {
+                analysis = await geminiClient_1.GeminiClient.fixBuildError(errorLog, failingFileContent, failingFilePath);
+            }
+            else {
+                // Fallback to generic analysis if no code context
+                analysis = await geminiClient_1.GeminiClient.analyzeCode({
+                    code: result.output,
+                    filePath: "terminal_output.log",
+                    language: "plaintext",
+                    hardwareContext: hardwareContext,
+                    source: 'terminal'
+                });
+            }
             ariaPanel_1.AriaPanel.currentPanel?.showAnalysisResult(analysis, {
-                filePath: "terminal_output.log",
-                source: 'terminal',
+                filePath: failingFilePath,
+                source: 'build-error',
                 hardware: hardwareContext
             });
         }

@@ -432,8 +432,7 @@ class AriaPanel {
             logger_1.Logger.log(`[A.R.I.A] ApplyDiff Failed: No target URI resolved.`);
             return false;
         }
-        // Safety Check: Prevent overwriting config files with source code
-        // This often happens if the AI fails to generate diff headers and falls back to the open file (e.g. platformio.ini)
+        // Safety Check 1: Prevent overwriting config files with C++ code
         if (!this._isSafeToApply(targetUri, diff)) {
             const msg = `Safety Block: Attempted to write C/C++ code to a configuration file (${path.basename(targetUri.fsPath)}). Operation aborted.`;
             logger_1.Logger.log(`[A.R.I.A] ${msg}`);
@@ -448,9 +447,12 @@ class AriaPanel {
         }
         const originalText = document.getText();
         let newText = "";
-        // CHECK: Is this a Unified Diff or Full Content?
+        // Check Diff Type
         if (this._isValidUnifiedDiff(diff)) {
             logger_1.Logger.log(`[A.R.I.A] Applying Unified Diff...`);
+            // IMPORTANT: Sanitize common formatting issues before applying
+            // - Ensure header paths are clean (remove quotes)
+            // - Ensure context lines start with space if missing (common AI error)
             const patched = diffEngine_1.DiffEngine.applyPatch(originalText, diff);
             if (patched === null) {
                 logger_1.Logger.log(`[A.R.I.A] ApplyDiff Failed: Patching returned null.`);
@@ -459,14 +461,24 @@ class AriaPanel {
             newText = patched;
         }
         else {
-            // Assume Full Content Rewrite
+            // Assume Full Content Rewrite logic... BUT CHECK FOR DANGEROUS DIFF FRAGMENTS
+            // If the content is NOT a valid diff but LOOKS like one (contains hunk headers or diff markers), 
+            // DO NOT WRITE IT as full content. This is the root cause of the "code corruption" bug.
+            const looksLikeDiff = /^@@\s+-\d/m.test(diff) || /^\+\+\+\s+/m.test(diff) || /^---\s+/m.test(diff);
+            if (looksLikeDiff) {
+                const msg = `Safety Block: Content looks like a malformed diff but failed validation. Aborting full rewrite to prevent corruption.`;
+                logger_1.Logger.log(`[A.R.I.A] ${msg}`);
+                vscode.window.showErrorMessage(`A.R.I.A: Fix failed validation as a proper diff. Please regenerate.`);
+                return false;
+            }
             logger_1.Logger.log(`[A.R.I.A] Applying Full Rewrite (${diff.length} bytes)...`);
             // Basic safety check: Ensure it's not empty and looks like code
             if (diff.length < 10) {
                 logger_1.Logger.log(`[A.R.I.A] ApplyDiff Failed: Content too short.`);
                 return false;
             }
-            // Strip diff headers if present (used for targeting but not part of content)
+            // Strip diff headers if present but unmatched by validation? (Should be caught by looksLikeDiff now)
+            // But just in case, strip leading --- header block if it exists exactly
             newText = diff.replace(/^---\s+[^\r\n]+[\r\n]+\+\+\+\s+[^\r\n]+[\r\n]+/, '');
         }
         const fullRange = new vscode.Range(document.positionAt(0), document.positionAt(originalText.length));
@@ -669,6 +681,11 @@ class AriaPanel {
             wokwiGenerator_1.WokwiGenerator.createProjectFiles(metadata.workspaceRoot, json, metadata.board);
             vscode.window.showInformationMessage("A.R.I.A: Simulation files generated in .wokwi/ and wokwi.toml");
             this._panel.webview.postMessage({ type: 'simulationReady', workspaceRoot: metadata.workspaceRoot });
+            // Save to history
+            this._saveAssistantMessage({
+                type: 'simulationReady',
+                workspaceRoot: metadata.workspaceRoot
+            });
         }
         catch (e) {
             logger_1.Logger.log(`[A.R.I.A] Simulation generation failed: ${e}`);
@@ -807,17 +824,25 @@ class AriaPanel {
             return;
         }
         const root = workspaceFolders[0].uri.fsPath;
-        let board = boardHint.trim();
-        if (!board) {
-            board = await vscode.window.showInputBox({
-                prompt: "Enter PlatformIO Board ID (e.g., teensy41, uno, esp32dev)",
-                placeHolder: "teensy41"
+        let boardInput = boardHint.trim();
+        if (!boardInput) {
+            boardInput = await vscode.window.showInputBox({
+                prompt: "Enter board name (e.g., Arduino Nano, ESP32, Teensy 4.1)",
+                placeHolder: "arduino nano"
             }) || "";
         }
-        if (!board) {
+        if (!boardInput) {
             this._panel.webview.postMessage({ type: 'addResult', text: "PlatformIO setup cancelled: No board specified." });
             return;
         }
+        // Resolve natural language board name to PlatformIO ID
+        this._panel.webview.postMessage({ type: 'analysisLoading', message: `Resolving "${boardInput}"...` });
+        const board = await platformioManager_1.PlatformIOManager.resolveBoardId(boardInput);
+        if (!board) {
+            this._panel.webview.postMessage({ type: 'analysisError', error: `Could not recognize board "${boardInput}". Try a specific PlatformIO board ID (e.g., nanoatmega328, esp32dev).` });
+            return;
+        }
+        logger_1.Logger.log(`[A.R.I.A] Resolved "${boardInput}" → "${board}"`);
         this._panel.webview.postMessage({ type: 'analysisLoading', message: `Initializing PlatformIO for ${board}...` });
         const success = await platformioManager_1.PlatformIOManager.initProject(board, root);
         if (success) {
@@ -835,12 +860,141 @@ class AriaPanel {
             this._panel.webview.postMessage({ type: 'analysisError', error: "PlatformIO Init Failed. Check logs." });
         }
     }
+    async _handleExplainCommand(prompt) {
+        this._panel.webview.postMessage({ type: 'analysisLoading', message: 'Analyzing Project Context & Generating Explanation...' });
+        try {
+            logger_1.Logger.log(`[A.R.I.A] Generating Video Explanation for: ${prompt}`);
+            let finalPrompt = `User Question: "${prompt}"\n\n`;
+            // CONTEXT AWARENESS: Always scan for context to make explanation specific
+            try {
+                // 1. Hardware Scan
+                const hw = await hardwareContext_1.HardwareContext.scan();
+                let boardName = "Generic Microcontroller";
+                if (hw.projects.length > 0) {
+                    boardName = `${hw.projects[0].board} (${hw.projects[0].framework})`;
+                }
+                // 2. Deep Source Scan (Read src/ files)
+                let codeSnippet = "";
+                const srcFiles = await vscode.workspace.findFiles('src/**/*.{cpp,ino,c,h,hpp,S}', '**/node_modules/**', 10);
+                if (srcFiles.length > 0) {
+                    logger_1.Logger.log(`[A.R.I.A] Found ${srcFiles.length} source files for explanation context.`);
+                    for (const file of srcFiles) {
+                        try {
+                            const doc = await vscode.workspace.openTextDocument(file);
+                            const text = doc.getText();
+                            codeSnippet += `\n// --- File: ${vscode.workspace.asRelativePath(file)} ---\n${text.substring(0, 1500)}\n`;
+                        }
+                        catch (e) {
+                            logger_1.Logger.log(`[A.R.I.A] Failed to read ${file.fsPath}: ${e}`);
+                        }
+                    }
+                }
+                else {
+                    const editor = (0, editorContext_1.getLastActiveEditor)();
+                    if (editor) {
+                        codeSnippet = `// --- Active File ---\n${editor.document.getText().substring(0, 2000)}`;
+                    }
+                }
+                if (!codeSnippet)
+                    codeSnippet = "// No source code found.";
+                // 3. Inject Context
+                finalPrompt += `CONTEXT:\n` +
+                    `- Target Hardware: ${boardName}\n` +
+                    `- Project Source Code:\n\`\`\`cpp\n${codeSnippet}\n\`\`\`\n\n` +
+                    `INSTRUCTION: Explain the concept specifically in the context of this project's code and hardware. ` +
+                    `If the user asks "how does this work", refer to specific functions and pins in the provided code. ` +
+                    `If the user asks "how to wire", use the specific pins defined in the code.`;
+            }
+            catch (contextError) {
+                logger_1.Logger.log(`[A.R.I.A] Failed to gather context for explanation: ${contextError}`);
+                // Fallback to original prompt if context fails
+                finalPrompt = prompt;
+            }
+            const htmlContent = await geminiClient_1.GeminiClient.generateVideoScript(finalPrompt);
+            if (htmlContent) {
+                this._panel.webview.postMessage({
+                    type: 'addResult',
+                    text: `<div class="video-container" style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; max-width: 100%; bg: #000; border: 2px solid #55ff55; box-shadow: 0 0 10px #55ff55;">
+                        <iframe srcdoc="${htmlContent.replace(/"/g, '&quot;')}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;" sandbox="allow-scripts allow-same-origin"></iframe>
+                    </div>
+                    <div style="margin-top:5px; font-size:0.8em; color:#aaa;">Result generated by Gemini 3 Pro (Simulated Video)</div>`
+                });
+            }
+            else {
+                this._panel.webview.postMessage({ type: 'analysisError', error: "Video generation returned empty." });
+            }
+        }
+        catch (e) {
+            logger_1.Logger.log(`[A.R.I.A] Explain CMD Failed: ${e}`);
+            this._panel.webview.postMessage({ type: 'analysisError', error: `Explain Failed: ${e}` });
+        }
+    }
     async _handleGenerateImage(prompt) {
         this._panel.webview.postMessage({ type: 'analysisLoading', message: 'Generating Schematic with Gemini 3 Pro Preview...' });
         try {
             logger_1.Logger.log(`[A.R.I.A] Generating Schematic for prompt: ${prompt}`);
-            // Enhanced prompt for schematic context
-            const finalPrompt = `Circuit: ${prompt}. Ensure all connections are logical and professional.`;
+            let finalPrompt = `Circuit: ${prompt}. Ensure all connections are logical and professional.`;
+            // CONTEXT AWARENESS: Check if user refers to current project/workspace/code
+            const contextTriggerRegex = /(?:this|current|my)\s+(?:project|workspace|code|file)/i;
+            if (contextTriggerRegex.test(prompt)) {
+                logger_1.Logger.log('[A.R.I.A] Context-Aware Schematic Requested (Deep Scan)');
+                this._panel.webview.postMessage({ type: 'analysisLoading', message: 'Analyzing Project Source & Hardware...' });
+                try {
+                    // 1. Hardware Scan (Board Type)
+                    const hw = await hardwareContext_1.HardwareContext.scan();
+                    let boardName = "Generic Microcontroller";
+                    let boardFramework = "Arduino";
+                    if (hw.projects.length > 0) {
+                        boardName = hw.projects[0].board;
+                        boardFramework = hw.projects[0].framework;
+                    }
+                    // 2. Deep Source Scan (Read src/ files)
+                    let codeSnippet = "";
+                    // Find up to 10 source files to cover headers and implementation
+                    const srcFiles = await vscode.workspace.findFiles('src/**/*.{cpp,ino,c,h,hpp,S}', '**/node_modules/**', 10);
+                    if (srcFiles.length > 0) {
+                        logger_1.Logger.log(`[A.R.I.A] Found ${srcFiles.length} source files for context.`);
+                        for (const file of srcFiles) {
+                            try {
+                                const doc = await vscode.workspace.openTextDocument(file);
+                                const text = doc.getText();
+                                // Take first 2000 chars per file to stay within limits but capture definitions
+                                codeSnippet += `\n// --- File: ${vscode.workspace.asRelativePath(file)} ---\n${text.substring(0, 2000)}\n`;
+                            }
+                            catch (e) {
+                                logger_1.Logger.log(`[A.R.I.A] Failed to read ${file.fsPath}: ${e}`);
+                            }
+                        }
+                    }
+                    else {
+                        // Fallback to active editor if no src structure found
+                        const editor = (0, editorContext_1.getLastActiveEditor)();
+                        if (editor) {
+                            codeSnippet = `// --- Active File ---\n${editor.document.getText().substring(0, 4000)}`;
+                        }
+                    }
+                    if (!codeSnippet)
+                        codeSnippet = "// No matching source code found in workspace.";
+                    // 3. Inject Context into Prompt - STRONG INSTRUCTION
+                    finalPrompt = `STRICT INSTRUCTION: You are generating a schematic for a SPECIFIC implementation. DO NOT generate a generic example.\n\n` +
+                        `User Request: "${prompt}"\n\n` +
+                        `MUST USE THESE EXACT SPECS:\n` +
+                        `- Microcontroller: ${boardName} (${boardFramework})\n` +
+                        `- Pin Connections: YOU MUST READ THE CODE BELOW TO FIND PIN ASSIGNMENTS.\n` +
+                        `  - Look for 'const int', '#define', or 'pinMode'.\n` +
+                        `  - Check header files (.h) for pin definitions if not in main.cpp.\n` +
+                        `  - Example: If code says 'led = 25', you MUST wire the LED to Pin 25.\n\n` +
+                        `PROJECT SOURCE CODE:\n\`\`\`cpp\n${codeSnippet}\n\`\`\`\n\n` +
+                        `VISUALIZATION RULES:\n` +
+                        `- Draw the specific board mentioned (${boardName}).\n` +
+                        `- Draw wires EXACTLY as defined in the source code.\n` +
+                        `- Label all pins and components clearly.\n` +
+                        `- If a pin is defined in code but not standard on the board, adding a note or custom label is acceptable, but try to map to physical pins of ${boardName}.`;
+                }
+                catch (contextError) {
+                    logger_1.Logger.log(`[A.R.I.A] Failed to gather context: ${contextError}`);
+                }
+            }
             // Use Gemini 3 Pro (Hybrid Image/SVG Mode)
             const result = await geminiClient_1.GeminiClient.generateSchematicSVG(finalPrompt);
             if (result) {
@@ -855,6 +1009,14 @@ class AriaPanel {
                     metadata: {
                         model: 'gemini-3-pro-image-preview'
                     }
+                });
+                // Save to history
+                this._saveAssistantMessage({
+                    type: 'showImage',
+                    image: result, // We save the base64/SVG content directly. For large history this is heavy, but simple.
+                    isSvg: isSvg,
+                    prompt: prompt,
+                    metadata: { model: 'gemini-3-pro-image-preview' }
                 });
             }
             else {
@@ -905,7 +1067,6 @@ class AriaPanel {
                 case '/camera':
                     vscode.commands.executeCommand('aria.captureImage');
                     break;
-                // Corrected command ID
                 case '/video':
                     vscode.commands.executeCommand('aria.captureVideo');
                     break;
@@ -922,6 +1083,13 @@ class AriaPanel {
                 case '/logs':
                     vscode.commands.executeCommand('aria.analyzeSerialLogs');
                     break;
+                case '/db':
+                    const debugInfo = this._chatManager.getDebugState();
+                    this._panel.webview.postMessage({
+                        type: 'addResult',
+                        text: `<pre style="font-size:0.8em; overflow:auto;">${JSON.stringify(debugInfo, null, 2)}</pre>`
+                    });
+                    break;
                 case '/clear':
                     this._visionReferenceActive = false;
                     this._currentVisionImage = null;
@@ -933,9 +1101,9 @@ class AriaPanel {
                     this._panel.webview.postMessage({ type: 'addResult', text: "<b>Bare Metal Fault Analysis</b><br>Paste your error registers (e.g. <code>HFSR: 0x40000000</code>) or ask <i>'What is a Bus Fault?'</i> directly in the chat." });
                     break;
                 case '/init':
-                    const args = text.split(/\s+/).slice(1);
-                    const board = args[0] || "";
-                    await this._handleInitProject(board);
+                    // Take full argument string, not just first word
+                    const boardHint = text.replace(/^\/init\s*/i, '').trim();
+                    await this._handleInitProject(boardHint);
                     break;
                 case '/schematic':
                 case '/image':
@@ -946,6 +1114,14 @@ class AriaPanel {
                         return;
                     }
                     this._handleGenerateImage(prompt);
+                    break;
+                case '/explain':
+                    const explainPrompt = text.replace(/^\/explain\s*/i, '');
+                    if (!explainPrompt) {
+                        this._panel.webview.postMessage({ type: 'addResult', text: "Please provide a query. Usage: <code>/explain how to connect L293D</code>" });
+                        return;
+                    }
+                    this._handleExplainCommand(explainPrompt);
                     break;
                 default:
                     // Only return if it matches a known command structure but not a known command
@@ -964,7 +1140,7 @@ class AriaPanel {
             // Better: all known commands above 'break' the switch.
             // If we are here, and it was a known command, we should return.
             // Let's refine the switch to return directly.
-            if (['/help', '/analyze', '/selection', '/workspace', '/validate', '/capture', '/camera', '/video', '/build', '/flash', '/serial', '/logs', '/clear', '/fault', '/init', '/schematic', '/image', '/draw'].includes(cmd)) {
+            if (['/help', '/analyze', '/selection', '/workspace', '/validate', '/capture', '/camera', '/video', '/build', '/flash', '/serial', '/logs', '/clear', '/fault', '/init', '/schematic', '/image', '/draw', '/explain'].includes(cmd)) {
                 return;
             }
         }

@@ -170,4 +170,13 @@ export class ChatManager {
         const firstLine = content.split('\n')[0];
         return firstLine.length > 30 ? firstLine.substring(0, 30) + '...' : firstLine;
     }
+
+    public getDebugState(): any {
+        return {
+            storagePath: this._storagePath,
+            sessionCount: this._sessions.size,
+            globalStateBackup: this._context.globalState.get('aria_chat_history') ? "Present" : "Empty",
+            sessions: Array.from(this._sessions.values()).map(s => JSON.stringify({ id: s.id, msgs: s.messages.length, lastMod: new Date(s.lastModified).toISOString() }))
+        };
+    }
 }

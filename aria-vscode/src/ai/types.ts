@@ -1,8 +1,8 @@
 export interface AnalysisInput {
-    source: "selection" | "file" | "terminal";
     code: string;
-    language: string;
     filePath: string;
+    source: 'selection' | 'file' | 'terminal' | 'build_error';
+    language: string;
     hardwareContext?: string;
     visionContext?: {
         boards: string[];

@@ -67,6 +67,25 @@ class HardwareValidator {
                 // Using driver
             }
         }
+        // 4. Detect DC Motor Usage (H-Bridge patterns)
+        // Look for common H-bridge pin patterns like: enA, in1, in2, ENA, IN1, IN2, motorA, etc.
+        const motorPatterns = [
+            /\b(en[AB]|ENA|ENB)\b/i, // Enable pins
+            /\b(in[1-4]|IN[1-4])\b/, // Direction pins
+            /\bmotor[AB]?\b/i, // Motor variables
+            /\bL298N?\b/i, // L298N driver
+            /\bL293D?\b/i, // L293D driver
+        ];
+        const hasMotorPins = motorPatterns.some(pattern => pattern.test(code));
+        // Also check for common H-bridge control patterns:
+        // analogWrite for speed + digitalWrite for direction
+        const hasAnalogWrite = /analogWrite\s*\(\s*(enA|enB|ENA|ENB|\d+)/i.test(code);
+        const hasDigitalDirection = /digitalWrite\s*\(\s*(in[1-4]|IN[1-4])/i.test(code);
+        if (hasMotorPins || (hasAnalogWrite && hasDigitalDirection)) {
+            if (!peripherals.includes("dcmotor")) {
+                peripherals.push("dcmotor");
+            }
+        }
         // 4. Board-Specific Checks (Teensy 4.1 Example)
         if (hardwareSummary.toLowerCase().includes("teensy41")) {
             for (const [pin, name] of Object.entries(pinUsage)) {

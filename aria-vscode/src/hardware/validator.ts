@@ -31,7 +31,7 @@ export class HardwareValidator {
         while ((match = pinDefRegex.exec(code)) !== null) {
             const name = match[1] || match[3];
             const pin = match[2] || match[4];
-            
+
             if (pinUsage[pin]) {
                 issues.push(`Duplicate pin assignment: Pin ${pin} is used by ${pinUsage[pin]} and ${name}`);
                 status = "fail";
@@ -49,13 +49,13 @@ export class HardwareValidator {
             while ((match = attachRegex.exec(code)) !== null) {
                 const servoObj = match[1];
                 const pinOrVar = match[2];
-                
+
                 // If variable, try to resolve
                 const pinNum = definedPins.get(pinOrVar) || pinOrVar;
                 if (!/^\d+$/.test(pinNum) && !definedPins.has(pinOrVar)) {
-                     // Can't resolve statically, might be OK
+                    // Can't resolve statically, might be OK
                 } else {
-                     // Pin is resolved
+                    // Pin is resolved
                 }
             }
 
@@ -76,9 +76,32 @@ export class HardwareValidator {
             // Check constructor: AccelStepper stepper(AccelStepper::DRIVER, STEP, DIR);
             // Heuristic check for missing driver assumption
             if (!code.includes("AccelStepper::DRIVER") && !code.includes("1")) {
-                 // Maybe using 4-wire?
+                // Maybe using 4-wire?
             } else {
-                 // Using driver
+                // Using driver
+            }
+        }
+
+        // 4. Detect DC Motor Usage (H-Bridge patterns)
+        // Look for common H-bridge pin patterns like: enA, in1, in2, ENA, IN1, IN2, motorA, etc.
+        const motorPatterns = [
+            /\b(en[AB]|ENA|ENB)\b/i,           // Enable pins
+            /\b(in[1-4]|IN[1-4])\b/,           // Direction pins
+            /\bmotor[AB]?\b/i,                  // Motor variables
+            /\bL298N?\b/i,                      // L298N driver
+            /\bL293D?\b/i,                      // L293D driver
+        ];
+
+        const hasMotorPins = motorPatterns.some(pattern => pattern.test(code));
+
+        // Also check for common H-bridge control patterns:
+        // analogWrite for speed + digitalWrite for direction
+        const hasAnalogWrite = /analogWrite\s*\(\s*(enA|enB|ENA|ENB|\d+)/i.test(code);
+        const hasDigitalDirection = /digitalWrite\s*\(\s*(in[1-4]|IN[1-4])/i.test(code);
+
+        if (hasMotorPins || (hasAnalogWrite && hasDigitalDirection)) {
+            if (!peripherals.includes("dcmotor")) {
+                peripherals.push("dcmotor");
             }
         }
 
